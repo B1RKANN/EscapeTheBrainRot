@@ -19,11 +19,20 @@ namespace EscapeTheBrainRot
         [Header("UI Ayarları")]
         public GameObject[] uiElementsToHide; // Saklanma sırasında gizlenecek UI elementleri
         
+        [Header("Kamera Sarsıntı Ayarları")]
+        public bool enableBreathingEffect = true;   // Nefes alma efektini etkinleştirir/devre dışı bırakır
+        public float breathingIntensity = 0.002f;   // Sarsıntı gücünü düşürdük (öncekine göre yarı yarıya)
+        public float breathingSpeed     = 1.0f;     // Nefes alma hızını biraz yavaşlattık
+        public bool onlyVerticalMovement = true;    // Sadece yukarı-aşağı hareket
+        public float randomIntensity    = 0.0008f;  // Rastgele küçük oynama ekledik, ama çok hafif   // Rastgele hareket gücü
+        
         private bool playerInRange = false;       // Oyuncu menzilde mi?
         private bool playerHiding = false;        // Oyuncu saklanıyor mu?
         private GameObject playerObject;          // Oyuncu GameObject'i
         private AudioSource audioSource;          // Ses efekti için
         private BoxCollider triggerCollider;      // Trigger collider'ı
+        private Vector3 originalCamPosition;       // Kameranın orijinal pozisyonu
+        private float breathingTime = 0f;          // Nefes alma zamanlayıcısı
         
         void Start()
         {
@@ -53,6 +62,45 @@ namespace EscapeTheBrainRot
             if (uiElementsToHide == null || uiElementsToHide.Length == 0)
             {
                 AutoFindUIElements();
+            }
+        }
+        
+        // Update metodu - kamera sarsıntı efekti için
+        void Update()
+        {
+            // Sadece oyuncu saklanma modundayken ve nefes efekti etkinse
+            if (playerHiding && spindCam != null && spindCam.enabled && enableBreathingEffect)
+            {
+                ApplyBreathingEffect();
+            }
+        }
+        
+        // Nefes alma efekti uygula
+        private void ApplyBreathingEffect()
+        {
+            if (originalCamPosition == Vector3.zero)
+            {
+                originalCamPosition = spindCam.transform.localPosition;
+            }
+            
+            // Zaman ilerlet
+            breathingTime += Time.deltaTime * breathingSpeed;
+            
+            // Sinüs dalgası ile yukarı-aşağı hareket (nefes alma hissi)
+            float breathingY = Mathf.Sin(breathingTime) * breathingIntensity;
+            
+            if (onlyVerticalMovement)
+            {
+                // Sadece yukarı-aşağı hareket
+                spindCam.transform.localPosition = originalCamPosition + new Vector3(0f, breathingY, 0f);
+            }
+            else
+            {
+                // Rastgele küçük hareketler ekleyerek titreme hissi ver
+                Vector3 randomMovement = Random.insideUnitSphere * randomIntensity;
+                
+                // Kameranın pozisyonunu güncelle
+                spindCam.transform.localPosition = originalCamPosition + new Vector3(randomMovement.x, breathingY + randomMovement.y, randomMovement.z);
             }
         }
         
@@ -146,6 +194,13 @@ namespace EscapeTheBrainRot
             if (spindCam != null)
             {
                 Debug.Log("Kamera aktif ediliyor: " + spindCam.name);
+                
+                // Kameranın orijinal pozisyonunu kaydet
+                originalCamPosition = spindCam.transform.localPosition;
+                
+                // Nefes alma zamanlayıcısını sıfırla
+                breathingTime = 0f;
+                
                 spindCam.enabled = true;
                 Debug.Log("Kamera aktif edildi mi: " + spindCam.enabled);
             }
@@ -173,7 +228,15 @@ namespace EscapeTheBrainRot
         {
             // Dolap kamerasını devreden çıkar
             if (spindCam != null)
+            {
+                // Kamerayı orijinal pozisyonuna döndür
+                if (originalCamPosition != Vector3.zero)
+                {
+                    spindCam.transform.localPosition = originalCamPosition;
+                }
+                
                 spindCam.enabled = false;
+            }
             
             // Oyuncuyu tekrar aktifleştir ve çıkış noktasına yerleştir
             if (playerObject != null)
