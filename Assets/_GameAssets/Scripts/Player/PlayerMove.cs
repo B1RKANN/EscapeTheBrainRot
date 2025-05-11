@@ -10,7 +10,13 @@ namespace EscapeTheBrainRot
         
         [Header("Yürüme Sarsıntı Ayarları")]
         public WalkBobbingEffect walkEffect;
-        public Camera playerCamera; // Elle atanabilir kamera referansı 
+        public Camera playerCamera; // Elle atanabilir kamera referansı
+        
+        [Header("Yerçekimi Ayarları")]
+        public float gravity = 20f;          // Yerçekimi şiddeti
+        public float jumpHeight = 2.0f;      // Zıplama yüksekliği (isteğe bağlı)
+        private float verticalVelocity = 0f;  // Dikey hız
+        private bool isGrounded;             // Yerde miyiz kontrolü
         
         void Start()
         {
@@ -41,6 +47,9 @@ namespace EscapeTheBrainRot
 
         void Update()
         {
+            // Yerçekimi hesaplamaları
+            ApplyGravity();
+            
             // Karakterin hareket edip etmediğini kontrol et
             float horizontalInput = joystick.Horizontal;
             float verticalInput = joystick.Vertical;
@@ -49,13 +58,16 @@ namespace EscapeTheBrainRot
             // Hareket vektörünü hesapla
             Vector3 moveDirection = transform.right * horizontalInput + transform.forward * verticalInput;
             
+            // Dikey hareketi ekle (yerçekimi veya zıplama)
+            moveDirection.y = verticalVelocity;
+            
             // Karakteri hareket ettir
             characterController.Move(moveDirection * SpeedMove * Time.deltaTime);
             
             // Kamera sarsıntısını aktifleştir veya devre dışı bırak
             if (walkEffect != null)
             {
-                if (isMoving)
+                if (isMoving && isGrounded) // Sadece yerdeyken sarsıntı olsun
                 {
                     // Hareket hızına bağlı olarak sarsıntı yoğunluğunu ayarla
                     float intensity = Mathf.Clamp01(moveDirection.magnitude) * 0.5f;
@@ -71,6 +83,28 @@ namespace EscapeTheBrainRot
                 // WalkBobbingEffect bileşeni hala yoksa hata mesajı
                 Debug.LogError("HATA: WalkBobbingEffect bileşeni bulunamadı!");
             }
+        }
+        
+        void ApplyGravity()
+        {
+            // Yerde miyiz kontrolü
+            isGrounded = characterController.isGrounded;
+            
+            if (isGrounded && verticalVelocity < 0)
+            {
+                // Yerdeyken küçük bir değer uygula (tam 0 olursa isGrounded bazen sorun çıkarabilir)
+                verticalVelocity = -2f;
+            }
+            else
+            {
+                // Yerçekimini uygula (hızı aşağı doğru artır)
+                verticalVelocity -= gravity * Time.deltaTime;
+            }
+            
+            // İsteğe bağlı: Zıplama kodunu burada ekleyebilirsiniz
+            // if (isGrounded && Input.GetButtonDown("Jump")) {
+            //     verticalVelocity = Mathf.Sqrt(jumpHeight * 2f * gravity);
+            // }
         }
     }
 }
