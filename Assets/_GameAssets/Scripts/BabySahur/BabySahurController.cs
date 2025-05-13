@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using System.Collections;
 
 public class BabySahurController : MonoBehaviour
 {
@@ -9,6 +10,7 @@ public class BabySahurController : MonoBehaviour
     [SerializeField] private LayerMask obstacleLayer; // Engelleri belirleyen layer mask
     [SerializeField] private bool useObstacleDetection = true; // Engel tespiti kullanılsın mı?
     [SerializeField] private bool debugMode = true;
+    [SerializeField] private float checkInterval = 0.05f; // Kontrol aralığı
     
     [Header("Referanslar")]
     [SerializeField] private GameObject takeButtonObject;
@@ -18,8 +20,11 @@ public class BabySahurController : MonoBehaviour
     private bool isPlayerLooking = false;
     private TakeButtonController takeButtonController;
     private static BabySahurController lastLookedAtBabySahur;
-    private float lastTimeChecked = 0f;
-    private const float CHECK_INTERVAL = 0.05f; // 50 milisaniyede bir kontrol et (daha sık)
+    
+    // Önbelleğe alınmış değişkenler
+    private float sqrDetectionDistance; // Kare mesafe
+    private float cosViewAngle; // Kosinüs açısı
+    private Coroutine checkRoutine; // Kontrol rutini
     
     private void Awake()
     {
@@ -32,6 +37,10 @@ public class BabySahurController : MonoBehaviour
                 Debug.LogError("Take butonunda TakeButtonController script'i bulunamadı!");
             }
         }
+        
+        // Önbelleğe değerleri hesapla
+        sqrDetectionDistance = detectionDistance * detectionDistance;
+        cosViewAngle = Mathf.Cos(viewAngle * Mathf.Deg2Rad);
     }
     
     private void Start()
@@ -85,15 +94,49 @@ public class BabySahurController : MonoBehaviour
         {
             Debug.LogError("Oyuncu BabySahur referansı ayarlanmamış! Inspector'dan atayın.");
         }
+        
+        // Algılama rutinini başlat
+        StartCheckRoutine();
     }
     
-    private void Update()
+    private void OnEnable()
     {
-        // Performans için, her karede değil belirli aralıklarla kontrol et
-        if (Time.time - lastTimeChecked >= CHECK_INTERVAL)
+        // Component aktifleştirildiğinde rutini başlat
+        StartCheckRoutine();
+    }
+    
+    private void OnDisable()
+    {
+        // Component pasifleştirildiğinde rutini durdur
+        StopCheckRoutine();
+    }
+    
+    private void StartCheckRoutine()
+    {
+        // Mevcut rutini durdur
+        StopCheckRoutine();
+        
+        // Yeni rutin başlat
+        checkRoutine = StartCoroutine(LookCheckRoutine());
+    }
+    
+    private void StopCheckRoutine()
+    {
+        if (checkRoutine != null)
         {
-            lastTimeChecked = Time.time;
+            StopCoroutine(checkRoutine);
+            checkRoutine = null;
+        }
+    }
+    
+    private IEnumerator LookCheckRoutine()
+    {
+        // Sürekli döngü
+        while (true)
+        {
+            // Belirli aralıklarla kontrol et
             CheckPlayerLookingAtBabySahur();
+            yield return new WaitForSeconds(checkInterval);
         }
     }
     
@@ -101,41 +144,47 @@ public class BabySahurController : MonoBehaviour
     {
         if (playerCamera == null) return;
         
-        // Oyuncu ve BabySahur arasındaki mesafeyi kontrol et
-        float distance = Vector3.Distance(playerCamera.position, transform.position);
+        // Oyuncu ve BabySahur arasındaki kare mesafeyi hesapla
+        Vector3 playerPos = playerCamera.position;
+        Vector3 sahurPos = transform.position;
+        float sqrDistance = (playerPos - sahurPos).sqrMagnitude;
         
         if (debugMode && Time.frameCount % 30 == 0) // Her 30 karede bir log göster
         {
-            Debug.Log("BabySahur'a mesafe: " + distance.ToString("F2") + " (Max: " + detectionDistance + ")");
+            Debug.Log("BabySahur'a mesafe (kare): " + sqrDistance.ToString("F2") + " (Max kare: " + sqrDetectionDistance + ")");
         }
         
-        if (distance <= detectionDistance)
+        // Kare mesafe kontrolü (karekök hesabı yapmadan)
+        if (sqrDistance <= sqrDetectionDistance)
         {
-            // BABYSAHUR ORTA NOKTASI YERİNE GÖZ SEVİYESİNE BAKMA KONTROLÜ
-            // BabySahur'un "göz" seviyesini hesapla (biraz yukarısı)
-            Vector3 eyePosition = transform.position + Vector3.up * 0.4f;
+            // BabySahur'un "göz" seviyesini hesapla
+            Vector3 eyePosition = sahurPos + Vector3.up * 0.4f;
             
-            // Oyuncunun bakış açısını kontrol et
-            Vector3 directionToSahur = eyePosition - playerCamera.position;
-            float angle = Vector3.Angle(playerCamera.forward, directionToSahur);
+            // Oyuncunun bakış yönünü ve sahura olan yönü normalize et
+            Vector3 directionToSahur = eyePosition - playerPos;
+            Vector3 directionNormalized = directionToSahur.normalized;
+            Vector3 cameraForward = playerCamera.forward;
+            
+            // Dot Product ile açı kontrolü (trigonometrik hesap yapmadan)
+            float dotProduct = Vector3.Dot(cameraForward, directionNormalized);
+            bool isInAngle = dotProduct >= cosViewAngle;
             
             if (debugMode && Time.frameCount % 30 == 0) // Her 30 karede bir log göster
             {
-                Debug.Log("BabySahur'a bakış açısı: " + angle.ToString("F2") + " (Max: " + viewAngle + ")");
+                Debug.Log("BabySahur için dot product: " + dotProduct.ToString("F4") + " (Min: " + cosViewAngle.ToString("F4") + ")");
             }
             
-            // Oyuncu uygun açı içinde bakıyor mu?
-            bool isInAngle = angle <= viewAngle;
-            bool hasLineOfSight = true; // Varsayılan olarak görüş alanı var
+            // Varsayılan olarak görüş alanı var
+            bool hasLineOfSight = true;
             
-            // Engel tespiti
+            // Engel tespiti - sadece açı doğruysa kontrol et
             if (useObstacleDetection && isInAngle)
             {
                 // BabySahur ile kamera arasında engel var mı kontrol et
                 hasLineOfSight = !Physics.Raycast(
-                    playerCamera.position, 
-                    directionToSahur, 
-                    distance,
+                    playerPos, 
+                    directionNormalized, 
+                    Mathf.Sqrt(sqrDistance), // Burada karekök gerekli ama sadece gerektiğinde bir kez
                     obstacleLayer
                 );
                 

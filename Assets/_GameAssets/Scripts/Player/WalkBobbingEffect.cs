@@ -21,76 +21,93 @@ namespace EscapeTheBrainRot
         private bool isShaking = false;
         private float currentIntensity = 0f;
         private float timer = 0f;
+
+        // Son uygulanan sarsıntı miktarını saklamak için
+        private Vector3 lastAppliedBobPosition = Vector3.zero;
+        private Quaternion lastAppliedBobRotation = Quaternion.identity;
         
         void Start()
         {
             // Başlangıç pozisyonunu kaydet
             ResetOriginalPosition();
+            // Başlangıçta sarsıntı uygulanmadığı için sıfırla
+            lastAppliedBobPosition = Vector3.zero;
+            lastAppliedBobRotation = Quaternion.identity;
         }
         
         void OnEnable()
         {
             // Bileşen aktif olduğunda pozisyonu kaydet
             ResetOriginalPosition();
+            // Aktif olduğunda da sarsıntı uygulanmadığı için sıfırla
+            lastAppliedBobPosition = Vector3.zero;
+            lastAppliedBobRotation = Quaternion.identity;
         }
         
         void LateUpdate()
         {
-            // Sarsıntı aktif değilse ve zaten orijinal pozisyondaysak, hiçbir şey yapma
-            if (!isShaking && Vector3.Distance(transform.localPosition, originalPosition) < 0.001f)
-            {
-                return;
-            }
-            
+            // Mevcut transform'dan geçen karedeki sarsıntıyı çıkararak "temel" transform'u elde et
+            // Bu, fare bakışı gibi diğer script'lerin bu kare için ayarladığı transform'dur
+            Quaternion baseRotationThisFrame = transform.localRotation * Quaternion.Inverse(lastAppliedBobRotation);
+            Vector3 basePositionThisFrame = transform.localPosition - lastAppliedBobPosition;
+
+            Vector3 targetPosition;
+            Quaternion targetRotation;
+
             if (isShaking)
             {
                 // Adım zamanlayıcısını güncelle
                 timer += Time.deltaTime * stepFrequency * Mathf.PI;
                 
                 // Adım atma efekti için yukarı-aşağı (dikey) hareket
-                float verticalBob = Mathf.Sin(timer * 2f) * verticalAmount * currentIntensity;
-                
+                float verticalBobValue = Mathf.Sin(timer * 2f) * verticalAmount * currentIntensity;
                 // Sağa-sola hafif sallanma
-                float lateralBob = Mathf.Sin(timer) * lateralAmount * currentIntensity;
+                float lateralBobValue = Mathf.Sin(timer) * lateralAmount * currentIntensity;
                 
                 // Yürürken öne-arkaya ve yanlara hafif eğilme
-                float tiltAngleX = Mathf.Sin(timer) * tiltAmount * currentIntensity;
-                float tiltAngleZ = Mathf.Cos(timer) * tiltAmount * 0.5f * currentIntensity;
+                float tiltAngleXValue = Mathf.Sin(timer) * tiltAmount * currentIntensity;
+                float tiltAngleZValue = Mathf.Cos(timer) * tiltAmount * 0.5f * currentIntensity;
                 
-                // Pozisyon ve rotasyon güncelleme
-                Vector3 bobPosition = new Vector3(lateralBob, verticalBob, 0);
-                Quaternion bobRotation = Quaternion.Euler(tiltAngleX, 0, tiltAngleZ);
+                // Hesaplanan sarsıntı offset'leri
+                Vector3 currentBobPositionOffset = new Vector3(lateralBobValue, verticalBobValue, 0);
+                Quaternion currentBobRotationOffset = Quaternion.Euler(tiltAngleXValue, 0, tiltAngleZValue);
                 
-                // Hızlı güncelleme için MoveTowards kullanımı
-                transform.localPosition = Vector3.MoveTowards(
-                    transform.localPosition, 
-                    originalPosition + bobPosition, 
-                    Time.deltaTime * smoothness * 0.1f
-                );
+                // Hedef: Temel transform + mevcut sarsıntı offset'i
+                targetPosition = basePositionThisFrame + currentBobPositionOffset;
+                targetRotation = baseRotationThisFrame * currentBobRotationOffset;
                 
-                transform.localRotation = Quaternion.RotateTowards(
-                    transform.localRotation,
-                    originalRotation * bobRotation,
-                    Time.deltaTime * smoothness * 10f
-                );
+                // Bir sonraki karede geri almak için bu karede uygulanan sarsıntıyı kaydet
+                lastAppliedBobPosition = currentBobPositionOffset;
+                lastAppliedBobRotation = currentBobRotationOffset;
             }
             else
             {
-                // Sarsıntı aktif değilse orijinal konuma geri dön
-                transform.localPosition = Vector3.MoveTowards(
-                    transform.localPosition, 
-                    originalPosition, 
-                    Time.deltaTime * smoothness * 0.1f
-                );
+                // Sarsıntı aktif değilse hedef, sarsıntısız temel transform'dur
+                targetPosition = basePositionThisFrame;
+                targetRotation = baseRotationThisFrame;
                 
-                transform.localRotation = Quaternion.RotateTowards(
-                    transform.localRotation,
-                    originalRotation,
-                    Time.deltaTime * smoothness * 10f
-                );
+                // Bir sonraki karede geri almak için sarsıntı olmadığını kaydet
+                lastAppliedBobPosition = Vector3.zero;
+                lastAppliedBobRotation = Quaternion.identity;
                 
-                timer = 0;
+                timer = 0; // Zamanlayıcıyı sıfırla, bir önceki if bloğunun dışına taşıdım çünkü sarsıntı bitince sıfırlanmalı.
+                               // Önceki kodda zaten dışarıdaydı, yerini korudum.
             }
+            
+            // Yumuşak geçişle hedefe ilerle
+            // Not: transform.localPosition/Rotation (sol taraf) mevcut fiziksel değeri içerir (geçen karenin sarsıntısıyla birlikte)
+            // Bu sayede (temel_poz + geçen_sarsıntı) durumundan (temel_poz + yeni_sarsıntı)'ya veya (temel_poz)'a yumuşak geçiş yapılır.
+            transform.localPosition = Vector3.MoveTowards(
+                transform.localPosition, 
+                targetPosition, 
+                Time.deltaTime * smoothness * 0.1f 
+            );
+            
+            transform.localRotation = Quaternion.RotateTowards(
+                transform.localRotation,
+                targetRotation,
+                Time.deltaTime * smoothness * 10f
+            );
         }
         
         public void SetShakeActive(bool active, float intensity = 1.0f)
