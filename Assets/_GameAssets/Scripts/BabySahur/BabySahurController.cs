@@ -5,8 +5,8 @@ using System.Collections;
 public class BabySahurController : MonoBehaviour
 {
     [Header("Algılama Ayarları")]
-    [SerializeField] private float detectionDistance = 5f; // Algılama mesafesi arttırıldı
-    [SerializeField] private float viewAngle = 60f; // Görüş açısı arttırıldı
+    [SerializeField] private float detectionDistance = 1.5f; // Algılama mesafesi arttırıldı
+    [SerializeField] private float viewAngle = 35f; // Görüş açısı daraltıldı (önceki 60f)
     [SerializeField] private LayerMask obstacleLayer; // Engelleri belirleyen layer mask
     [SerializeField] private bool useObstacleDetection = true; // Engel tespiti kullanılsın mı?
     [SerializeField] private bool debugMode = true;
