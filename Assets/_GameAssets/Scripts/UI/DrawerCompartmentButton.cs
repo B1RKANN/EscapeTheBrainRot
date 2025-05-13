@@ -6,11 +6,11 @@ public class DrawerCompartmentButton : MonoBehaviour
 {
     [Header("Ayarlar")]
     [Tooltip("Bu butonun kontrol edeceği kompartıman indeksi (0, 1, veya 2). " +
-             "DrawerController'daki 'compartmentOpenParams' dizisiyle eşleşmelidir.")]
+             "DrawerController'daki 'compartmentAnimators' dizisiyle eşleşmelidir.")]
     [SerializeField] private int compartmentIndex = 0;
 
     [Header("Referanslar")]
-    [Tooltip("Sahnedeki DrawerController scriptine sahip obje.")]
+    [Tooltip("Bu butonun ait olduğu çekmecenin DrawerController scriptine sahip obje. MANUEL ATANMALIDIR!")]
     [SerializeField] private DrawerController drawerController;
 
     private Button uiButton;
@@ -21,44 +21,41 @@ public class DrawerCompartmentButton : MonoBehaviour
         
         if (drawerController == null)
         {
-            // DrawerController referansı Inspector'dan atanmamışsa, sahnede bulmayı dene.
-            // Genellikle en iyi pratik Inspector'dan manuel olarak atamaktır.
-            drawerController = FindObjectOfType<DrawerController>();
-            if (drawerController == null)
-            {
-                Debug.LogError("DrawerCompartmentButton: DrawerController referansı atanmamış ve sahnede bulunamadı! Lütfen Inspector'dan atayın.", this);
-                return; // drawerController olmadan devam etme
-            }
-            else
-            {
-                 Debug.LogWarning("DrawerCompartmentButton: DrawerController referansı Inspector'dan atanmamış, sahnede otomatik olarak bulundu. Manuel atama tercih edilir.", this);
-            }
+            // DrawerController referansı Inspector'dan atanmamışsa, bu kritik bir hatadır.
+            // FindObjectOfType kullanımı birden fazla çekmece olduğunda yanlış DrawerController'ı bulabilir.
+            // Bu yüzden manuel atama zorunludur.
+            Debug.LogError($"DrawerCompartmentButton ({gameObject.name}): DrawerController referansı atanmamış! Lütfen Inspector üzerinden bu butona doğru DrawerController'ı (ait olduğu çekmecenin controller'ını) manuel olarak atayın. Çoğaltılmış çekmecelerde her buton kendi DrawerController'ına bağlanmalıdır.", this);
+            
+            // İsteğe bağlı: Butonu devre dışı bırakarak daha fazla karışıklığı önleyebilirsiniz.
+            // if (uiButton != null) uiButton.interactable = false;
+            return; 
         }
     }
     
     void Start()
     {
-        // Butonun onClick event'ine kendi metodumuzu ekle
-        if (uiButton != null && drawerController != null) // Null check sonrası
+        // drawerController null değilse (Awake'de kontrol edildi) ve uiButton varsa listener ekle
+        if (uiButton != null && drawerController != null) 
         {
             uiButton.onClick.AddListener(OnButtonClick);
         }
         else if (uiButton == null)
         {
-             Debug.LogError("DrawerCompartmentButton: Button bileşeni bulunamadı!", this);
+             Debug.LogError($"DrawerCompartmentButton ({gameObject.name}): Button bileşeni bulunamadı!", this);
         }
+        // drawerController null ise Awake'de zaten hata verildi ve return yapıldı.
     }
 
     private void OnButtonClick()
     {
-        if (drawerController != null)
+        if (drawerController != null) // Bu kontrol Start'tan sonra yine de iyi bir pratiktir.
         {
             drawerController.ToggleCompartmentState(compartmentIndex);
         }
         else
         {
-            // Bu durum Awake'de zaten kontrol edilmiş olmalı ama emin olmak için.
-            Debug.LogError("DrawerCompartmentButton: DrawerController referansı atanmamış!", this);
+            // Bu durumun normalde Awake'de yakalanması gerekir.
+            Debug.LogError($"DrawerCompartmentButton ({gameObject.name}): OnButtonClick çağrıldı ancak DrawerController referansı hala null!", this);
         }
     }
 
