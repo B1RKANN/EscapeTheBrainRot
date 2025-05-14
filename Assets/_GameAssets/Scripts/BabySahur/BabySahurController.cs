@@ -217,16 +217,32 @@ public class BabySahurController : MonoBehaviour
                 // Buton durumunu kontrol et - her zaman güncel tut
                 if (takeButtonObject != null && takeButtonController != null)
                 {
-                    if (!takeButtonObject.activeSelf)
+                    // YENİ KONTROL: Oyuncunun envanterinde BabySahur var mı?
+                    if (playerInventoryBabySahur != null && playerInventoryBabySahur.activeSelf)
                     {
-                        takeButtonObject.SetActive(true);
-                        
-                        // TakeButtonController'a bu BabySahur'u bildir
-                        takeButtonController.SetCurrentBabySahur(this);
-                        
-                        if (debugMode)
+                        // Envanterde zaten BabySahur varsa, yeni alma butonu gösterme
+                        if (takeButtonObject.activeSelf) // Buton açıksa kapat
                         {
-                            Debug.Log("Take butonu aktifleştirildi ve " + gameObject.name + " referansı atandı");
+                            takeButtonObject.SetActive(false);
+                            if (debugMode)
+                            {
+                                Debug.Log("Envanterde BabySahur var, Take butonu pasifleştirildi.");
+                            }
+                        }
+                    }
+                    else // Envanter boşsa ve diğer koşullar uygunsa butonu göster
+                    {
+                        if (!takeButtonObject.activeSelf)
+                        {
+                            takeButtonObject.SetActive(true);
+                            
+                            // TakeButtonController'a bu BabySahur'u bildir
+                            takeButtonController.SetCurrentBabySahur(this);
+                            
+                            if (debugMode)
+                            {
+                                Debug.Log("Take butonu aktifleştirildi ve " + gameObject.name + " referansı atandı");
+                            }
                         }
                     }
                 }
