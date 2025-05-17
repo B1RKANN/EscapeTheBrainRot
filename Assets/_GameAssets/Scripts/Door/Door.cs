@@ -5,7 +5,7 @@ public class Door : MonoBehaviour
 {
     [Header("Kapı Ayarları")]
     public bool isOpen = false;
-    public float openSpeed = 2.0f;
+    public float openAnimationDuration = 1.0f;
     
     [Header("Animasyon Referansları")]
     [SerializeField] private Animator animator;
@@ -23,13 +23,8 @@ public class Door : MonoBehaviour
             if (animator == null)
             {
                 Debug.LogError("Door: Kapı için Animator bulunamadı! Doğru objeye atanmış mı kontrol edin.");
-                
-                // Child objelerinde Animator var mı kontrol et
                 animator = GetComponentInChildren<Animator>();
-                if (animator != null)
-                {
-                    Debug.Log("Door: Animator kapının child objesinde bulundu.");
-                }
+                if (animator != null) Debug.Log("Door: Animator kapının child objesinde bulundu.");
             }
         }
         
@@ -71,21 +66,19 @@ public class Door : MonoBehaviour
     {
         isOpen = true;
         
-        // Animator varsa, animasyonu oynat
         if (animator != null)
         {
-            if (debugMode) Debug.Log("Door: Kapı açılıyor, animator.SetBool(" + DOOR_OPEN + ", true) çağrılıyor.");
+            if (debugMode) Debug.Log($"Door: {gameObject.name} kapısı açılıyor (SADECE ANİMASYON).");
             animator.SetBool(DOOR_OPEN, true);
-            
-            // Animator durumunu kontrol et
-            if (debugMode)
-            {
-                StartCoroutine(CheckAnimatorState());
-            }
         }
-        else
+        else if (debugMode)
         {
-            Debug.LogWarning("Door: Kapı Animatörü bulunamadı!");
+            Debug.LogWarning($"Door: {gameObject.name} için Kapı Animatörü bulunamadı!", this);
+        }
+            
+        if (debugMode)
+        {
+            StartCoroutine(CheckAnimatorState());
         }
     }
     
@@ -93,15 +86,13 @@ public class Door : MonoBehaviour
     {
         isOpen = false;
         
-        // Animator varsa, animasyonu kapat
         if (animator != null)
         {
-            if (debugMode) Debug.Log("Door: Kapı kapanıyor, animator.SetBool(" + DOOR_OPEN + ", false) çağrılıyor.");
+            if (debugMode) Debug.Log($"Door: {gameObject.name} kapısı kapanıyor (SADECE ANİMASYON).");
             animator.SetBool(DOOR_OPEN, false);
         }
     }
     
-    // Buton için doğrudan çağrılabilecek Toggle fonksiyonu
     public void ToggleDoor()
     {
         if (isOpen)
@@ -114,7 +105,6 @@ public class Door : MonoBehaviour
         }
     }
     
-    // Animator durumunu kontrol eden coroutine
     private System.Collections.IEnumerator CheckAnimatorState()
     {
         yield return new WaitForSeconds(0.1f);
@@ -129,14 +119,10 @@ public class Door : MonoBehaviour
         }
     }
     
-    // Editor'da kapı ve animator durumunu görselleştir
     private void OnDrawGizmosSelected()
     {
-        // Kapının rotasyonunu ve pozisyonunu göster
         Gizmos.color = Color.blue;
         Gizmos.DrawWireCube(transform.position, new Vector3(1, 2, 0.1f));
-        
-        // Açık kapı pozisyonunu göster
         Gizmos.color = Color.green;
         Vector3 openDirection = transform.right * 1.5f;
         Gizmos.DrawLine(transform.position, transform.position + openDirection);
