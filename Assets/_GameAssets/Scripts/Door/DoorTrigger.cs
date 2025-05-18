@@ -25,10 +25,7 @@ public class DoorTrigger : MonoBehaviour
             Debug.LogError("DoorTrigger: targetDoor referansı atanmamış! Lütfen Inspector'da atayın.");
             
         if (doorButton == null)
-            Debug.LogError("DoorTrigger: doorButton referansı atanmamış! Lütfen Inspector'da atayın.");
-            
-        if (interactButton == null)
-            Debug.LogError("DoorTrigger: interactButton referansı atanmamış! Lütfen Inspector'da atayın.");
+            Debug.LogError("DoorTrigger: doorButton (GameObject) referansı atanmamış! Lütfen Inspector'da atayın.");
             
         // Bu objenin Collider'i olduğundan emin ol
         Collider collider = GetComponent<Collider>();
@@ -50,29 +47,29 @@ public class DoorTrigger : MonoBehaviour
         // Başlangıçta buton görünmez olmalı
         if (doorButton != null)
         {
-            doorButton.SetActive(false);
-            if (debugMode) Debug.Log("DoorTrigger: Başlangıçta buton gizlendi.");
-            
             // DoorButton script referansını al
             if (doorButtonScript == null)
             {
                 doorButtonScript = doorButton.GetComponent<DoorButton>();
-                
-                // Door referansını ayarla
-                if (doorButtonScript != null && targetDoor != null)
+                if (doorButtonScript == null)
                 {
-                    // Artık direct setter kullanabiliriz
-                    doorButtonScript.SetTargetDoor(targetDoor);
-                    if (debugMode) Debug.Log("DoorTrigger: DoorButton scriptine kapı referansı aktarıldı - " + targetDoor.name);
+                    Debug.LogError("DoorTrigger: doorButton GameObject'inde DoorButton scripti bulunamadı!", doorButton);
                 }
             }
-        }
-        
-        // Button listener'ı ekle
-        if (interactButton != null)
-        {
-            interactButton.onClick.AddListener(OnDoorButtonClicked);
-            if (debugMode) Debug.Log("DoorTrigger: Buton click listener'ı eklendi.");
+            
+            // Door referansını ayarla
+            if (doorButtonScript != null && targetDoor != null)
+            {
+                doorButtonScript.SetTargetDoor(targetDoor);
+                if (debugMode) Debug.Log("DoorTrigger: DoorButton scriptine kapı referansı aktarıldı - " + targetDoor.name);
+            }
+            else if (doorButtonScript == null && debugMode)
+            {
+                Debug.LogWarning("DoorTrigger: DoorButton scripti atanmamış, kapı referansı aktarılamadı.");
+            }
+
+            doorButton.SetActive(false);
+            if (debugMode) Debug.Log("DoorTrigger: Başlangıçta buton (GameObject) gizlendi.");
         }
     }
     
@@ -118,10 +115,16 @@ public class DoorTrigger : MonoBehaviour
             if (doorButtonScript != null && targetDoor != null)
             {
                 doorButtonScript.SetTargetDoor(targetDoor);
+                if (debugMode) Debug.Log("DoorTrigger: Buton gösterilirken DoorButton scriptine kapı referansı güncellendi - " + targetDoor.name);
+            }
+            else if (debugMode)
+            {
+                if(doorButtonScript == null) Debug.LogWarning("DoorTrigger: ShowDoorButton - doorButtonScript atanmamış.");
+                if(targetDoor == null) Debug.LogWarning("DoorTrigger: ShowDoorButton - targetDoor atanmamış.");
             }
             
             doorButton.SetActive(true);
-            if (debugMode) Debug.Log("DoorTrigger: Buton gösterildi!");
+            if (debugMode) Debug.Log("DoorTrigger: Buton (GameObject) gösterildi!");
         }
         else
         {
@@ -135,27 +138,11 @@ public class DoorTrigger : MonoBehaviour
         if (doorButton != null)
         {
             doorButton.SetActive(false);
-            if (debugMode) Debug.Log("DoorTrigger: Buton gizlendi.");
+            if (debugMode) Debug.Log("DoorTrigger: Buton (GameObject) gizlendi.");
         }
         else
         {
             Debug.LogError("DoorTrigger: doorButton referansı bulunamadı! HideDoorButton çağrılamadı.");
-        }
-    }
-    
-    // Buton tıklama olayı
-    private void OnDoorButtonClicked()
-    {
-        if (debugMode) Debug.Log("DoorTrigger: Buton tıklandı!");
-        
-        if (targetDoor != null)
-        {
-            targetDoor.OpenDoor();
-            if (debugMode) Debug.Log("DoorTrigger: Kapı açılma komutu gönderildi.");
-        }
-        else
-        {
-            Debug.LogError("DoorTrigger: Hedef kapı atanmamış!");
         }
     }
     

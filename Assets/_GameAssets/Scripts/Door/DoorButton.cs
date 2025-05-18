@@ -2,13 +2,15 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 
-// UI butonunun üzerine tıklandığında kapıyı açacak script
+// UI butonunun üzerine tıklandığında kapıyı açacak/kapatacak script
 public class DoorButton : MonoBehaviour, IPointerClickHandler
 {
     [Header("Kapı Referansı")]
-    [SerializeField] private Door targetDoor;
-    [SerializeField] private bool autoFindDoor = true; // En yakın kapıyı otomatik bul
-    [SerializeField] private bool allowToggleDoor = true; // Kapıyı tekrar tıklayarak kapatmayı aktif et
+    // targetDoor referansı DoorTrigger tarafından atanacak
+    private Door targetDoor;
+    
+    // [SerializeField] private bool autoFindDoor = false; // Bu özellik kafa karışıklığına neden olabileceğinden kaldırıldı veya false yapıldı.
+    [SerializeField] private bool allowToggleDoor = true; // Bu hala geçerli, toggle işlemini kontrol eder.
     
     [Header("Buton Görünümü")]
     // Buton animasyonu için (isteğe bağlı)
@@ -21,33 +23,32 @@ public class DoorButton : MonoBehaviour, IPointerClickHandler
     [SerializeField] private Color pressedColor = Color.gray;
     [SerializeField] private Color openDoorColor = new Color(0.2f, 0.8f, 0.2f); // Kapı açıkken buton rengi
     
-    // Kapının son durumunu takip et
-    private bool isDoorOpen = false;
+    // Kapının son durumunu takip etmek için targetDoor.isOpen kullanılacak
+    // private bool isDoorOpen = false; // Kaldırıldı
     
     // Kapı referansını dışarıdan ayarlamak için public metod
     public void SetTargetDoor(Door doorRef)
     {
         targetDoor = doorRef;
-        Debug.Log("DoorButton: Hedef kapı ayarlandı - " + (doorRef != null ? doorRef.name : "null"));
-    }
-    
-    // Kapı referansını almak için
-    public Door GetTargetDoor()
-    {
-        return targetDoor;
+        if (targetDoor != null)
+        {
+            // Debug.Log("DoorButton: Hedef kapı ayarlandı - " + doorRef.name);
+            UpdateButtonVisuals(); // Kapı atandığında buton görünümünü güncelle
+        }
+        else
+        {
+            // Debug.LogWarning("DoorButton: Hedef kapı null olarak ayarlandı.");
+        }
     }
     
     private void Awake()
     {
-        // Otomatik olarak kapıyı bul
-        if (autoFindDoor && targetDoor == null)
-        {
-            FindNearestDoor();
-        }
-    }
-    
-    private void Start()
-    {
+        // Otomatik olarak kapıyı bulma özelliği kaldırıldı veya devre dışı bırakıldı.
+        // if (autoFindDoor && targetDoor == null)
+        // {
+        // FindNearestDoor();
+        // }
+
         // Button Image referansını otomatik al
         if (buttonImage == null)
         {
@@ -59,11 +60,15 @@ public class DoorButton : MonoBehaviour, IPointerClickHandler
         {
             buttonAnimator = GetComponent<Animator>();
         }
-        
+    }
+    
+    private void Start()
+    {
         // Referansları kontrol et ve uyarı ver
         if (targetDoor == null)
         {
-            Debug.LogWarning("DoorButton: targetDoor referansı yok! Lütfen Inspector'da atayın veya autoFindDoor'u etkinleştirin.");
+            // Bu uyarı DoorTrigger hedef kapıyı atayana kadar görünebilir, bu normaldir.
+            // Debug.LogWarning("DoorButton: Başlangıçta targetDoor referansı yok! DoorTrigger tarafından atanması bekleniyor.");
         }
         
         // Animatör var mı kontrol et
@@ -89,11 +94,13 @@ public class DoorButton : MonoBehaviour, IPointerClickHandler
         }
     }
     
-    // En yakın kapıyı bul
+    // En yakın kapıyı bulma özelliği gereksizleşti veya isteğe bağlı hale getirildi.
+    /*
     private void FindNearestDoor()
     {
         Door[] allDoors = FindObjectsOfType<Door>();
         float closestDistance = float.MaxValue;
+        Door foundDoor = null; // Yerel değişken olarak değiştirildi
         
         foreach (Door door in allDoors)
         {
@@ -101,37 +108,37 @@ public class DoorButton : MonoBehaviour, IPointerClickHandler
             if (distance < closestDistance)
             {
                 closestDistance = distance;
-                targetDoor = door;
+                foundDoor = door;
             }
         }
         
-        if (targetDoor != null)
+        if (foundDoor != null)
         {
+            targetDoor = foundDoor; // Sadece burada ata
             Debug.Log($"DoorButton: En yakın kapı otomatik bulundu - {targetDoor.name} (Mesafe: {closestDistance:F2} birim)");
         }
+        else
+        {
+            Debug.LogWarning("DoorButton: FindNearestDoor çağrıldı ancak yakında bir kapı bulunamadı.");
+        }
     }
+    */
     
     // UI butonuna tıklama işlemi
     public void OnPointerClick(PointerEventData eventData)
     {
         if (targetDoor == null)
         {
-            // Tekrar kapı bulmayı dene
-            FindNearestDoor();
-            
-            if (targetDoor == null)
-            {
-                Debug.LogError("DoorButton: targetDoor referansı yok! Buton tıklanınca kapı bulunamadı.");
-                return;
-            }
+            Debug.LogError("DoorButton: targetDoor referansı yok! Buton tıklanmasına rağmen kapı bulunamadı. DoorTrigger'ı kontrol edin.");
+            return;
         }
         
-        // Buton basılma animasyonu
+        // Buton basılma efekti (renk)
         if (buttonImage != null)
         {
             buttonImage.color = pressedColor;
-            // Kısa süre sonra normale dön
-            Invoke("UpdateButtonColor", 0.2f);
+            // Kısa süre sonra normale/durum rengine dön
+            // Invoke("UpdateButtonVisuals", 0.2f); // UpdateButtonVisuals hemen çağrılacak
         }
         
         // Buton animatörü varsa
@@ -139,7 +146,6 @@ public class DoorButton : MonoBehaviour, IPointerClickHandler
         {
             try
             {
-                // Animatör trigger'ı çalıştır
                 buttonAnimator.SetTrigger(triggerParametreName);
             }
             catch (System.Exception e)
@@ -148,37 +154,50 @@ public class DoorButton : MonoBehaviour, IPointerClickHandler
             }
         }
         
-        // Kapıyı aç veya kapat
-        if (allowToggleDoor && isDoorOpen)
+        // Kapıyı aç veya kapat (Toggle)
+        if (allowToggleDoor)
         {
-            // Kapı zaten açıksa, kapat
-            targetDoor.CloseDoor();
-            isDoorOpen = false;
-            Debug.Log("DoorButton: Kapı kapatılıyor...");
+            targetDoor.ToggleDoor(); // Doğrudan Door.cs'deki ToggleDoor kullanılır
+            // Debug.Log($"DoorButton: {targetDoor.name} için ToggleDoor çağrıldı. Yeni durum: {(targetDoor.isOpen ? "AÇIK" : "KAPALI")}");
+        }
+        else
+        { 
+            // Eğer toggle izin verilmiyorsa, sadece açmayı dene (eski davranış gibi)
+            if (!targetDoor.isOpen)
+            {
+                targetDoor.OpenDoor();
+                // Debug.Log($"DoorButton: {targetDoor.name} için OpenDoor çağrıldı (toggle kapalı).");
+            }
+            // else Debug.Log($"DoorButton: Kapı zaten açık ve toggle kapalı, işlem yapılmadı.");
+        }
+        
+        // Tıklama sonrası buton görünümünü hemen güncelle
+        UpdateButtonVisuals();
+    }
+    
+    // Butonun rengini ve diğer görsellerini kapının durumuna göre güncelle
+    private void UpdateButtonVisuals() // İsmi UpdateButtonColor'dan UpdateButtonVisuals'a değiştirildi
+    {
+        if (buttonImage == null) return; // Image yoksa işlem yapma
+
+        if (targetDoor != null && targetDoor.isOpen && allowToggleDoor)
+        {
+            buttonImage.color = openDoorColor; // Kapı açıksa ve toggle edilebilirsee yeşil renk
         }
         else
         {
-            // Kapı kapalıysa, aç
-            targetDoor.OpenDoor();
-            isDoorOpen = true;
-            Debug.Log("DoorButton: Kapı açılıyor...");
+            buttonImage.color = normalColor; // Kapı kapalıysa veya toggle edilemezse normal renk
         }
+        // Gelecekte buraya ikon değiştirme vb. eklenebilir.
     }
     
-    // Butonun rengini güncelle
-    private void UpdateButtonColor()
+    // Start içinde çağrılabilir veya kapı durumu değiştiğinde event ile tetiklenebilir.
+    void OnEnable() 
     {
-        if (buttonImage != null)
+        // Buton aktif olduğunda mevcut kapı durumuna göre görselini güncelleyebilir.
+        if (targetDoor != null) // targetDoor null değilse güncelle
         {
-            // Kapı durumuna göre renk seç
-            if (isDoorOpen && allowToggleDoor)
-            {
-                buttonImage.color = openDoorColor; // Kapı açıksa yeşil renk
-            }
-            else
-            {
-                buttonImage.color = normalColor; // Kapı kapalıysa normal renk
-            }
+            UpdateButtonVisuals();
         }
     }
     
