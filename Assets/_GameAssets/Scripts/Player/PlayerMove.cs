@@ -106,6 +106,11 @@ namespace EscapeTheBrainRot
             //     verticalVelocity = Mathf.Sqrt(jumpHeight * 2f * gravity);
             // }
         }
+
+        public bool IsGrounded()
+        {
+            return characterController.isGrounded;
+        }
     }
 }
 
