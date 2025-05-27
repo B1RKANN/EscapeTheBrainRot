@@ -4,6 +4,9 @@ using UnityEngine.UI;
 using EscapeTheBrainRot; // PlayerMove namespace'i için eklendi
 // System.Collections Coroutine için gerekli değil, kaldırılabilir.
 
+// YENİ: SpindHidingSpot namespace'i için
+using EscapeTheBrainRot; 
+
 /// <summary>
 /// Sahur karakterinin yapay zeka davranışlarını yönetir.
 /// Belirlenen devriye noktaları arasında rastgele gezer ve belirli aralıklarla boşta durur.
@@ -129,6 +132,18 @@ public class SahurAIController : MonoBehaviour
     [Tooltip("Fiziksel saldırı sırasında gizlenecek ana oyun arayüzü Canvas'ı.")]
     [SerializeField] private Canvas mainGameCanvas;
 
+    [Header("Vision Settings For Chase")] // YENİ BAŞLIK
+    [Tooltip("Sahur'un oyuncuyu görebileceği maksimum açı (derece). Görüş konisinin toplam açısıdır.")]
+    [SerializeField, Range(1f, 360f)] private float visionAngle = 90f;
+    [Tooltip("Sahur'un oyuncuyu görebileceği maksimum mesafe.")]
+    [SerializeField] private float visionDistance = 15f;
+    [Tooltip("Sahur'un görüşünü engelleyebilecek katmanlar (örn: Duvarlar, Kapılar). Player katmanı BU LİSTEDE OLMAMALI.")]
+    [SerializeField] private LayerMask obstacleLayer;
+    [Tooltip("Görerek başlatılan bir kovalamada, oyuncu bu mesafeden uzağa giderse Sahur kovalamayı bırakır.")]
+    [SerializeField] private float loseSightChaseDistance = 25f;
+    [Tooltip("Sahur, görerek başlattığı bir kovalamayı kaybettikten sonra ne kadar süre (saniye) boyunca tekrar görerek kovalamaya başlamaz.")]
+    [SerializeField] private float chaseAfterLosingSightCooldown = 10f;
+
     [Header("New Catch Sequence Settings")]
     [Tooltip("Sahur'un child objesi olan ve oyuncunun saldırı sırasında çekileceği nokta.")]
     [SerializeField] private Transform catchPoint;
@@ -206,17 +221,31 @@ public class SahurAIController : MonoBehaviour
     private Vector3 forcedLookAtPoint_SahurPosition;
     private Transform playerToForceLook;
 
+    // YENİ Değişkenler (Saklanma için)
+    private bool isPlayerHiding = false;
+    private Transform currentHidingSpotLocation = null; // Dolabın pozisyonu (genellikle dolabın önü)
+    private bool sahurKnowsPlayerIsHiding = false; // Sahur oyuncunun saklandığını biliyor mu ve dolaba mı gidiyor?
+    private float timeToWaitAtHidingSpot = 2.0f; // Dolapta bekleme süresi
+    private float hidingSpotWaitTimer = 0f;
+    private bool hasReachedHidingSpotDoor = false; // Sahur dolabın kapısına ulaştı mı?
+
+    // YENİ Değişkenler (Görerek Kovalama için)
+    private bool isChasingDueToVision = false;
+    private float currentChaseCooldownTimer = 0f;
+
 
     // --- Unity Mesajları ---
 
     private void OnEnable()
     {
         BurnMechanismController.OnBabyTungBurned += HandleBabyBurned;
+        SpindHidingSpot.OnPlayerHidingSpotStateChanged += HandlePlayerHidingSpotStateChanged; // YENİ
     }
 
     private void OnDisable()
     {
         BurnMechanismController.OnBabyTungBurned -= HandleBabyBurned;
+        SpindHidingSpot.OnPlayerHidingSpotStateChanged -= HandlePlayerHidingSpotStateChanged; // YENİ
     }
 
     private void Awake()
@@ -343,7 +372,20 @@ public class SahurAIController : MonoBehaviour
                 UpdateChasingPlayerState();
                 break;
             case AIState.ActionInProgress:
+                // ActionInProgress durumunda özel bir Update mantığı genellikle olmaz,
+                // çünkü Coroutine'ler bu durumu yönetir.
+                // Ancak, eğer dolapta bekleme gibi bir durum buraya dahil edilecekse eklenebilir.
+                if (sahurKnowsPlayerIsHiding && hasReachedHidingSpotDoor)
+                {
+                    UpdateHidingSpotWaitTimer();
+                }
                 break;
+        }
+
+        // Kovalamayı kaybettikten sonraki cooldown'u işle
+        if (currentChaseCooldownTimer > 0f)
+        {
+            currentChaseCooldownTimer -= Time.deltaTime;
         }
     }
 
@@ -411,6 +453,14 @@ public class SahurAIController : MonoBehaviour
         {
             SwitchToState(AIState.Patrolling);
         }
+
+        // Görerek kovalama kontrolü
+        if (!isPlayerHiding && currentChaseCooldownTimer <= 0f && CanSeePlayer())
+        {
+            Debug.Log("[SahurAIController] Oyuncu Idle durumundayken GÖRÜLDÜ! Kovalamaya geçiliyor.", this);
+            isChasingDueToVision = true;
+            SwitchToState(AIState.ChasingPlayer);
+        }
     }
 
     // --- Patrolling Durumu ---
@@ -432,6 +482,15 @@ public class SahurAIController : MonoBehaviour
     private void UpdatePatrollingState()
     {
         currentPatrolTimer -= Time.deltaTime;
+
+        // Görerek kovalama kontrolü
+        if (!isPlayerHiding && currentChaseCooldownTimer <= 0f && CanSeePlayer())
+        {
+            Debug.Log("[SahurAIController] Oyuncu devriye durumundayken GÖRÜLDÜ! Kovalamaya geçiliyor.", this);
+            isChasingDueToVision = true;
+            SwitchToState(AIState.ChasingPlayer);
+            return; // Kovalamaya geçtiği için diğer devriye mantığını çalıştırma
+        }
 
         if (agent.hasPath && agent.remainingDistance > agentStoppingDistance) 
         {
@@ -508,12 +567,18 @@ public class SahurAIController : MonoBehaviour
     private void EnterChasingPlayerState()
     {
         Debug.Log("[SahurAIController] ChasingPlayer durumuna girildi!", this);
-        if (playerTransform == null)
+        if (playerTransform == null && !(isPlayerHiding && sahurKnowsPlayerIsHiding)) // Oyuncu saklanmıyorsa ve hedefi dolap değilse, oyuncu referansı GEREKLİ
         {
-            Debug.LogError("[SahurAIController] Oyuncu referansı yok! ChasingPlayer durumu düzgün çalışamaz. Idle durumuna geçiliyor.", this);
+            Debug.LogError("[SahurAIController] Oyuncu referansı yok ve hedef dolap değil! ChasingPlayer durumu düzgün çalışamaz. Idle durumuna geçiliyor.", this);
             SwitchToState(AIState.Idle);
             return;
         }
+
+        // Eğer bu state'e `isChasingDueToVision` true olmadan girildiyse (örn: bebek yakma),
+        // o zaman `isChasingDueToVision`'ı false yap (HandleBabyBurned'de zaten yapılıyor ama emin olmak için).
+        // Ancak, eğer `CanSeePlayer` ile girildiyse, `isChasingDueToVision` zaten true olmalı.
+        // Bu satırı kaldırdım çünkü `isChasingDueToVision` durumu başlatan yerde ayarlanıyor.
+        // if (!isChasingDueToVision) isChasingDueToVision = false; 
 
         agent.speed = chaseSpeed;
         agent.angularSpeed = agentAngularSpeed; 
@@ -533,225 +598,293 @@ public class SahurAIController : MonoBehaviour
 
     private void UpdateChasingPlayerState()
     {
-        Debug.Log("[SahurAIController] UpdateChasingPlayerState ÇAĞRILDI!", this);
+        // Debug.Log("[SahurAIController] UpdateChasingPlayerState ÇAĞRILDI!", this);
 
-        if (playerTransform == null)
+        if (isPlayerHiding && sahurKnowsPlayerIsHiding && currentHidingSpotLocation != null)
+        {
+            // Oyuncu saklanıyor ve Sahur bunu biliyor, dolaba doğru git
+            agent.SetDestination(currentHidingSpotLocation.position);
+            agent.stoppingDistance = agentStoppingDistance; // Dolabın yakınında durması için
+            animator.SetBool(isChasingParameterName, true); // Dolaba giderken de koşabilir
+            animator.SetBool(isWalkingAnimatorHash, false);
+
+            if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance)
+            {
+                // Dolaba ulaşıldı
+                Debug.Log("[SahurAIController] Oyuncunun saklandığı dolaba ulaşıldı.", this);
+                hasReachedHidingSpotDoor = true;
+                hidingSpotWaitTimer = timeToWaitAtHidingSpot;
+                animator.SetBool(isChasingParameterName, false); 
+                animator.SetBool(isWalkingAnimatorHash, false); 
+                agent.isStopped = true;
+                agent.ResetPath();
+                SwitchToState(AIState.ActionInProgress); 
+                return;
+            }
+        }
+        else if (playerTransform == null)
         {
             Debug.LogWarning("[SahurAIController] ChasingPlayer: Oyuncu referansı kayboldu! Idle durumuna geçiliyor.", this);
             SwitchToState(AIState.Idle);
             return;
         }
-        
-        if (agent == null || !agent.enabled || !agent.isOnNavMesh) 
+        else // Normal kovalama mantığı (görerek veya bebek yakma ile)
         {
-            Debug.LogError($"[SahurAIController CHASE_UPDATE] NavMeshAgent null, devre dışı veya NavMesh üzerinde değil! Agent Durumu: {(agent == null ? "Null" : agent.enabled.ToString())}, IsOnNavMesh: {(agent == null ? "N/A" : agent.isOnNavMesh.ToString())}", this);
-            SwitchToState(AIState.Idle); 
-            return;
-        }
-
-        NavMeshHit agentPosHit;
-        if (agent.isOnNavMesh && NavMesh.SamplePosition(transform.position, out agentPosHit, 0.5f, NavMesh.AllAreas))
-        {
-            if (Vector3.Distance(transform.position, agentPosHit.position) > 0.1f)
+            // Görerek başlatılan kovalamada mesafeyi kontrol et
+            if (isChasingDueToVision)
             {
-                if (!agent.Warp(agentPosHit.position))
+                float distanceToPlayer = Vector3.Distance(transform.position, playerTransform.position);
+                if (distanceToPlayer > loseSightChaseDistance)
                 {
-                    Debug.LogError("[SahurAIController CHASE_UPDATE] Ajanı NavMesh'e warp etmek BAŞARISIZ OLDU.", this);
+                    Debug.Log($"[SahurAIController] Oyuncu ({playerTransform.name}) görerek kovalama için çok uzaklaştı ({distanceToPlayer:F1}m > {loseSightChaseDistance}m). Kovalamayı bırakıp devriyeye dönülüyor.", this);
+                    isChasingDueToVision = false;
+                    currentChaseCooldownTimer = chaseAfterLosingSightCooldown;
+                    SwitchToState(AIState.Patrolling);
+                    return;
+                }
+                // Hala görerek kovalıyorsa, oyuncu hedef olmalı
+                agent.stoppingDistance = playerCatchDistance; 
+            }
+            // else -> Bebek yakma ile kovalama, mesafe kontrolü yok, sadece oyuncuyu yakalamaya çalışır.
+            // (isChasingDueToVision false ise stoppingDistance zaten playerCatchDistance olmalı)
+
+            // Kalan kovalama mantığı (hedef belirleme, takılma tespiti vs.) buraya gelecek
+            // ... (Önceki mesajlardaki normal kovalama mantığı buraya kopyalanacak)
+            // Bu kısım bir önceki mesajınızdaki UpdateChasingPlayerState içeriğinin "else" bloğundan alınacak.
+            // KODUN DEVAMI (STUCK DETECTION VS.) BURADA YER ALACAK
+            // Ajanın NavMesh üzerinde olup olmadığını ve geçerli bir yolu olup olmadığını kontrol et
+            if (agent == null || !agent.enabled || !agent.isOnNavMesh) 
+            {
+                Debug.LogError($"[SahurAIController CHASE_UPDATE] NavMeshAgent null, devre dışı veya NavMesh üzerinde değil! Agent Durumu: {(agent == null ? "Null" : agent.enabled.ToString())}, IsOnNavMesh: {(agent == null ? "N/A" : agent.isOnNavMesh.ToString())}", this);
+                SwitchToState(AIState.Idle); 
+                return;
+            }
+
+            // Ajanı NavMesh'e sabitleme (nadiren gerekebilir)
+            NavMeshHit agentPosHit;
+            if (agent.isOnNavMesh && NavMesh.SamplePosition(transform.position, out agentPosHit, 0.5f, NavMesh.AllAreas))
+            {
+                if (Vector3.Distance(transform.position, agentPosHit.position) > 0.1f)
+                {
+                    if (!agent.Warp(agentPosHit.position))
+                    {
+                        Debug.LogError("[SahurAIController CHASE_UPDATE] Ajanı NavMesh'e warp etmek BAŞARISIZ OLDU.", this);
+                    }
                 }
             }
-        }
-        else if (!agent.isOnNavMesh)
-        {
-            Debug.LogError($"[SahurAIController CHASE_UPDATE] Ajan NavMesh üzerinde değil! ({transform.position}). Kovalama durduruluyor.", this);
-            SwitchToState(AIState.Idle);
-            return;
-        }
-
-        chasePathRecalculateTimer -= Time.deltaTime;
-        Vector3 currentPlayerPos = playerTransform.position;
-        float playerMovementSinceLastRecalcSqr = (currentPlayerPos - lastPlayerPositionForPathRecalculation).sqrMagnitude;
-
-        if (chasePathRecalculateTimer <= 0f || 
-            playerMovementSinceLastRecalcSqr > PlayerMoveThresholdForPathRecalcSqr || 
-            !agent.hasPath || 
-            agent.pathStatus != NavMeshPathStatus.PathComplete) 
-        {
-            if (!agent.pathPending && agent.isOnNavMesh)
+            else if (!agent.isOnNavMesh)
             {
-                Vector3 targetNavMeshPosition = currentPlayerPos;
-                NavMeshHit playerNavMeshHit;
-                float sampleRadius = 3.0f; 
-                if (NavMesh.SamplePosition(currentPlayerPos, out playerNavMeshHit, sampleRadius, NavMesh.AllAreas))
-                {
-                    targetNavMeshPosition = playerNavMeshHit.position;
-                }
-                else
-                {
-                    Debug.LogWarning($"[SahurAIController CHASE_UPDATE] Oyuncunun pozisyonu ({currentPlayerPos}) için {sampleRadius}m yarıçapında NavMesh üzerinde geçerli bir nokta bulunamadı. Ham pozisyon kullanılacak.", this);
-                }
+                Debug.LogError($"[SahurAIController CHASE_UPDATE] Ajan NavMesh üzerinde değil! ({transform.position}). Kovalama durduruluyor.", this);
+                SwitchToState(AIState.Idle);
+                return;
+            }
 
-                bool setDestSuccess = agent.SetDestination(targetNavMeshPosition);
-                if (setDestSuccess)
+            // Hedef yeniden hesaplama mantığı
+            chasePathRecalculateTimer -= Time.deltaTime;
+            Vector3 currentPlayerPos = playerTransform.position;
+            float playerMovementSinceLastRecalcSqr = (currentPlayerPos - lastPlayerPositionForPathRecalculation).sqrMagnitude;
+
+            if (chasePathRecalculateTimer <= 0f || 
+                playerMovementSinceLastRecalcSqr > PlayerMoveThresholdForPathRecalcSqr || 
+                !agent.hasPath || 
+                agent.pathStatus != NavMeshPathStatus.PathComplete) 
+            {
+                if (!agent.pathPending && agent.isOnNavMesh)
                 {
-                    lastPlayerPositionForPathRecalculation = currentPlayerPos; 
-                    chasePathRecalculateTimer = ChasePathRecalculateInterval;
-                }
-                else if (agent.isOnNavMesh) 
-                {
-                    Debug.LogError($"[SahurAIController CHASE_UPDATE] SetDestination ({targetNavMeshPosition}) BAŞARISIZ OLDU. PathStatus: {agent.pathStatus}", this);
+                    Vector3 targetNavMeshPosition = currentPlayerPos;
+                    NavMeshHit playerNavMeshHit;
+                    float sampleRadius = 3.0f; 
+                    if (NavMesh.SamplePosition(currentPlayerPos, out playerNavMeshHit, sampleRadius, NavMesh.AllAreas))
+                    {
+                        targetNavMeshPosition = playerNavMeshHit.position;
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[SahurAIController CHASE_UPDATE] Oyuncunun pozisyonu ({currentPlayerPos}) için {sampleRadius}m yarıçapında NavMesh üzerinde geçerli bir nokta bulunamadı. Ham pozisyon kullanılacak.", this);
+                    }
+
+                    bool setDestSuccess = agent.SetDestination(targetNavMeshPosition);
+                    if (setDestSuccess)
+                    {
+                        lastPlayerPositionForPathRecalculation = currentPlayerPos; 
+                        chasePathRecalculateTimer = ChasePathRecalculateInterval;
+                         animator.SetBool(isChasingParameterName, true); // Hedef ayarlandığında koşma animasyonu
+                         animator.SetBool(isWalkingAnimatorHash, false);
+                    }
+                    else if (agent.isOnNavMesh) 
+                    {
+                        Debug.LogError($"[SahurAIController CHASE_UPDATE] SetDestination ({targetNavMeshPosition}) BAŞARISIZ OLDU. PathStatus: {agent.pathStatus}", this);
+                    }
                 }
             }
-        }
-        
-        if (agent.isStopped) 
-        {
-            agent.isStopped = false;
-            Debug.Log("[SahurAIController CHASE_UPDATE] Agent.isStopped true idi, false yapıldı.", this);
-        }
-
-        if (agent.hasPath && agent.remainingDistance <= agent.stoppingDistance && !agent.pathPending)
-        {
-            Debug.Log($"[SahurAIController] Oyuncu yakalandı! AgentPos: {transform.position}, PlayerPos: {playerTransform.position}, Hedef: {agent.destination}", this);
             
-            animator.SetBool(isChasingAnimatorHash, false); 
-            HandlePlayerCaught(); 
-            return; 
-        }
-
-        if (Time.frameCount % 15 == 0) { 
-            Debug.Log($"[SahurAIController DIAGNOSTIC] Velocity: {agent.velocity.magnitude:F3}, HasPath: {agent.hasPath}, PathPending: {agent.pathPending}, PathStatus: {agent.pathStatus}, RemainingDist: {agent.remainingDistance:F2}, StoppingDist: {agent.stoppingDistance:F2}, IsStopped: {agent.isStopped}, StuckTimer: {stuckTimer:F2}, PathPendingTimer: {currentPathPendingTimer:F2}", this);
-        }
-
-        if (agent.pathPending)
-        {
-            currentPathPendingTimer += Time.deltaTime;
-            if (currentPathPendingTimer >= MaxPathPendingDuration && agent.velocity.magnitude < 0.05f)
+            // Ajanın durdurulup durdurulmadığını kontrol et
+            if (agent.isStopped) 
             {
-                Debug.LogWarning($"[SahurAIController CHASE_PATH_PENDING_STUCK] Ajan {MaxPathPendingDuration} saniyedir PathPending'de ve hızı çok düşük! Takılma çözümü tetikleniyor.", this);
-                stuckTimer = maxStuckTime; 
+                agent.isStopped = false;
             }
-        }
-        else
-        {
-            currentPathPendingTimer = 0f; 
-        }
 
-        if (stuckTimer < maxStuckTime) 
-        {
-            bool isPotentiallyStuck = agent.hasPath && agent.velocity.magnitude < 0.05f && agent.remainingDistance > agent.stoppingDistance && !agent.pathPending;
-            bool isPathProblem = (!agent.hasPath || agent.pathStatus == NavMeshPathStatus.PathPartial || agent.pathStatus == NavMeshPathStatus.PathInvalid) && agent.velocity.magnitude < 0.05f && !agent.pathPending;
-
-            if (isPotentiallyStuck || isPathProblem)
+            // Oyuncuyu yakalama kontrolü
+            if (agent.hasPath && agent.remainingDistance <= agent.stoppingDistance && !agent.pathPending)
             {
-                stuckTimer += Time.deltaTime;
-                if (Time.frameCount % 30 == 0) 
+                // Bu noktada isPlayerHiding kontrolü yukarıda (dolap mantığında) yapıldı, 
+                // eğer buraya geldiyse ve isPlayerHiding değilse yakalanmıştır.
+                // Ancak, görerek kovalama durumunda bu koşul farklı olabilir, 
+                // çünkü oyuncu dolaba girmiş olabilir ve Sahur dolaba ulaşmış olabilir.
+                // Bu yüzden dolap kontrolü daha öncelikli.
+                
+                // Eğer bu satıra kadar geldiysek ve oyuncu saklanmıyorsa, yakalanmıştır.
+                if (!isPlayerHiding) 
+                { 
+                    Debug.Log($"[SahurAIController] Oyuncu yakalandı! AgentPos: {transform.position}, PlayerPos: {playerTransform.position}, Hedef: {agent.destination}", this);
+                    animator.SetBool(isChasingParameterName, false); 
+                    HandlePlayerCaught(); 
+                    return; 
+                }
+            }
+
+            // Takılma tespiti (Stuck detection)
+            if (agent.pathPending)
+            {
+                currentPathPendingTimer += Time.deltaTime;
+                if (currentPathPendingTimer >= MaxPathPendingDuration && agent.velocity.magnitude < 0.05f)
                 {
-                    Debug.LogWarning($"[SahurAIController CHASE_STUCK_SUSPECT] Hız: {agent.velocity.magnitude:F2}, KalanMesafe: {agent.remainingDistance:F2}, PathStatus: {agent.pathStatus}, Hedef: {agent.destination}, Yolu Var mı: {agent.hasPath}. Takılma sayacı: {stuckTimer:F2}", this);
+                    Debug.LogWarning($"[SahurAIController CHASE_PATH_PENDING_STUCK] Ajan {MaxPathPendingDuration} saniyedir PathPending'de ve hızı çok düşük! Takılma çözümü tetikleniyor.", this);
+                    stuckTimer = maxStuckTime; 
                 }
             }
             else
             {
-                stuckTimer = 0f; 
+                currentPathPendingTimer = 0f; 
             }
-        }
 
-        if (stuckTimer >= maxStuckTime)
-        {
-            Debug.LogError($"[SahurAIController CHASE_STUCK_DETECTED] Ajan {maxStuckTime} saniyedir takılı! Kademeli agresif çözüm deneniyor. PathStatus: {agent.pathStatus}", this);
-            agent.ResetPath(); 
-
-            bool unstuckAttempted = false;
-            bool warpSuccess = false; 
-
-            if (playerTransform != null && agent.isOnNavMesh) 
+            if (stuckTimer < maxStuckTime) 
             {
-                Vector3 dirToPlayerFromAgent = (playerTransform.position - transform.position).normalized;
-                Vector3 targetWarpPosNearPlayer = playerTransform.position - dirToPlayerFromAgent * (playerCatchDistance + 0.5f); 
-                NavMeshHit hitNearPlayer;
-                if (NavMesh.SamplePosition(targetWarpPosNearPlayer, out hitNearPlayer, 1.5f, NavMesh.AllAreas))
-                {
-                    if (agent.Warp(hitNearPlayer.position))
-                    {
-                        Debug.Log($"[SahurAIController STUCK_RECOVERY_LVL1] Ajan oyuncunun yakınına ({hitNearPlayer.position}) başarıyla warp edildi.", this);
-                        warpSuccess = true;
-                    }
-                    else
-                    {Debug.LogError("[SahurAIController STUCK_RECOVERY_LVL1] Oyuncunun yakınına warp BAŞARISIZ.", this);}
-                    unstuckAttempted = true;
-                }
+                bool isPotentiallyStuck = agent.hasPath && agent.velocity.magnitude < 0.05f && agent.remainingDistance > agent.stoppingDistance && !agent.pathPending;
+                bool isPathProblem = (!agent.hasPath || agent.pathStatus == NavMeshPathStatus.PathPartial || agent.pathStatus == NavMeshPathStatus.PathInvalid) && agent.velocity.magnitude < 0.05f && !agent.pathPending;
 
-                if (!warpSuccess) 
+                if (isPotentiallyStuck || isPathProblem)
                 {
-                    Debug.LogWarning("[SahurAIController STUCK_RECOVERY_LVL1] Başarısız. LVL2 (çok yönlü kaçış) deneniyor.", this);
-                    Vector3 escapePosition = transform.position; 
-                    bool foundGenericEscapePos = false;
-                    Vector3 backwardDir = -dirToPlayerFromAgent;
-                    Vector3 sidewayDir = Vector3.Cross(Vector3.up, dirToPlayerFromAgent).normalized;
-                    Vector3[] escapeDirs = new Vector3[] {
-                        transform.position + backwardDir * 2.0f, 
-                        transform.position + sidewayDir * 2.0f,  
-                        transform.position - sidewayDir * 2.0f, 
-                        playerTransform.position - dirToPlayerFromAgent * (playerCatchDistance + 2.0f) 
-                    };
-                    NavMeshHit hitGenericEscape;
-                    foreach (Vector3 potentialPos in escapeDirs)
+                    stuckTimer += Time.deltaTime;
+                }
+                else
+                {
+                    stuckTimer = 0f; 
+                }
+            }
+
+            if (stuckTimer >= maxStuckTime)
+            {
+                // ... (Mevcut takılma çözme kodunuz buraya gelecek) ...
+                Debug.LogError($"[SahurAIController CHASE_STUCK_DETECTED] Ajan {maxStuckTime} saniyedir takılı! Kademeli agresif çözüm deneniyor. PathStatus: {agent.pathStatus}", this);
+                agent.ResetPath(); 
+
+                bool unstuckAttempted = false;
+                bool warpSuccess = false; 
+
+                if (playerTransform != null && agent.isOnNavMesh) 
+                {
+                    Vector3 dirToPlayerFromAgent = (playerTransform.position - transform.position).normalized;
+                    Vector3 targetWarpPosNearPlayer = playerTransform.position - dirToPlayerFromAgent * (playerCatchDistance + 0.5f); 
+                    NavMeshHit hitNearPlayer;
+                    if (NavMesh.SamplePosition(targetWarpPosNearPlayer, out hitNearPlayer, 1.5f, NavMesh.AllAreas))
                     {
-                        if (NavMesh.SamplePosition(potentialPos, out hitGenericEscape, 2.0f, NavMesh.AllAreas))
+                        if (agent.Warp(hitNearPlayer.position))
                         {
-                            escapePosition = hitGenericEscape.position;
-                            foundGenericEscapePos = true;
-                            break;
-                        }
-                    }
-                    if (foundGenericEscapePos)
-                    {
-                        if (agent.Warp(escapePosition))
-                        {
-                            Debug.Log($"[SahurAIController STUCK_RECOVERY_LVL2] Ajan genel kaçış pozisyonuna ({escapePosition}) warp edildi.", this);
+                            Debug.Log($"[SahurAIController STUCK_RECOVERY_LVL1] Ajan oyuncunun yakınına ({hitNearPlayer.position}) başarıyla warp edildi.", this);
                             warpSuccess = true;
                         }
-                        else {Debug.LogError("[SahurAIController STUCK_RECOVERY_LVL2] Genel kaçış pozisyonuna warp BAŞARISIZ.", this);}
+                        else
+                        {Debug.LogError("[SahurAIController STUCK_RECOVERY_LVL1] Oyuncunun yakınına warp BAŞARISIZ.", this);}
+                        unstuckAttempted = true;
                     }
-                    else { Debug.LogWarning("[SahurAIController STUCK_RECOVERY_LVL2] Genel kaçış pozisyonu bulunamadı.", this); }
-                    unstuckAttempted = true;
-                }
 
-                if (!warpSuccess)
+                    if (!warpSuccess) 
+                    {
+                        Debug.LogWarning("[SahurAIController STUCK_RECOVERY_LVL1] Başarısız. LVL2 (çok yönlü kaçış) deneniyor.", this);
+                        Vector3 escapePosition = transform.position; 
+                        bool foundGenericEscapePos = false;
+                        Vector3 backwardDir = -dirToPlayerFromAgent;
+                        Vector3 sidewayDir = Vector3.Cross(Vector3.up, dirToPlayerFromAgent).normalized;
+                        Vector3[] escapeDirs = new Vector3[] {
+                            transform.position + backwardDir * 2.0f, 
+                            transform.position + sidewayDir * 2.0f,  
+                            transform.position - sidewayDir * 2.0f, 
+                            playerTransform.position - dirToPlayerFromAgent * (playerCatchDistance + 2.0f) 
+                        };
+                        NavMeshHit hitGenericEscape;
+                        foreach (Vector3 potentialPos in escapeDirs)
+                        {
+                            if (NavMesh.SamplePosition(potentialPos, out hitGenericEscape, 2.0f, NavMesh.AllAreas))
+                            {
+                                escapePosition = hitGenericEscape.position;
+                                foundGenericEscapePos = true;
+                                break;
+                            }
+                        }
+                        if (foundGenericEscapePos)
+                        {
+                            if (agent.Warp(escapePosition))
+                            {
+                                Debug.Log($"[SahurAIController STUCK_RECOVERY_LVL2] Ajan genel kaçış pozisyonuna ({escapePosition}) warp edildi.", this);
+                                warpSuccess = true;
+                            }
+                            else {Debug.LogError("[SahurAIController STUCK_RECOVERY_LVL2] Genel kaçış pozisyonuna warp BAŞARISIZ.", this);}
+                        }
+                        else { Debug.LogWarning("[SahurAIController STUCK_RECOVERY_LVL2] Genel kaçış pozisyonu bulunamadı.", this); }
+                        unstuckAttempted = true;
+                    }
+
+                    if (!warpSuccess)
+                    {
+                        Debug.LogWarning("[SahurAIController STUCK_RECOVERY_LVL2] Başarısız. LVL3 (Translate + Warp) deneniyor.", this);
+                        Vector3 moveDir = dirToPlayerFromAgent * 0.1f; 
+                        transform.Translate(moveDir, Space.World);
+                        Debug.Log($"[SahurAIController STUCK_RECOVERY_LVL3] Ajan {moveDir.magnitude} birim translate edildi: {transform.position}", this);
+                        NavMeshHit snapHit;
+                        if (agent.isOnNavMesh && NavMesh.SamplePosition(transform.position, out snapHit, 1.0f, NavMesh.AllAreas))
+                        {
+                            if (agent.Warp(snapHit.position))
+                            { Debug.Log($"[SahurAIController STUCK_RECOVERY_LVL3] Translate sonrası NavMesh'e ({snapHit.position}) warp BAŞARILI.", this); warpSuccess = true;}
+                            else { Debug.LogError("[SahurAIController STUCK_RECOVERY_LVL3] Translate sonrası NavMesh'e warp BAŞARISIZ.", this);}
+                        }
+                        else if (!agent.isOnNavMesh)
+                        {
+                             Debug.LogError("[SahurAIController STUCK_RECOVERY_LVL3] Translate sonrası ajan NavMesh DIŞINDA KALDI! Son pozisyon: {transform.position}", this);
+                        }
+                        else { Debug.LogWarning("[SahurAIController STUCK_RECOVERY_LVL3] Translate sonrası warp için geçerli NavMesh noktası bulunamadı.", this);}
+                        unstuckAttempted = true;
+                    }
+                }
+                
+                if (!unstuckAttempted)
                 {
-                    Debug.LogWarning("[SahurAIController STUCK_RECOVERY_LVL2] Başarısız. LVL3 (Translate + Warp) deneniyor.", this);
-                    Vector3 moveDir = dirToPlayerFromAgent * 0.1f; 
-                    transform.Translate(moveDir, Space.World);
-                    Debug.Log($"[SahurAIController STUCK_RECOVERY_LVL3] Ajan {moveDir.magnitude} birim translate edildi: {transform.position}", this);
-                    NavMeshHit snapHit;
-                    if (agent.isOnNavMesh && NavMesh.SamplePosition(transform.position, out snapHit, 1.0f, NavMesh.AllAreas))
-                    {
-                        if (agent.Warp(snapHit.position))
-                        { Debug.Log($"[SahurAIController STUCK_RECOVERY_LVL3] Translate sonrası NavMesh'e ({snapHit.position}) warp BAŞARILI.", this); warpSuccess = true;}
-                        else { Debug.LogError("[SahurAIController STUCK_RECOVERY_LVL3] Translate sonrası NavMesh'e warp BAŞARISIZ.", this);}
-                    }
-                    else if (!agent.isOnNavMesh)
-                    {
-                         Debug.LogError("[SahurAIController STUCK_RECOVERY_LVL3] Translate sonrası ajan NavMesh DIŞINDA KALDI! Son pozisyon: {transform.position}", this);
-                    }
-                    else { Debug.LogWarning("[SahurAIController STUCK_RECOVERY_LVL3] Translate sonrası warp için geçerli NavMesh noktası bulunamadı.", this);}
-                    unstuckAttempted = true;
+                    Debug.LogWarning("[SahurAIController STUCK_RECOVERY] Oyuncu veya NavMesh durumu nedeniyle hiçbir takılma çözme yöntemi denenemedi.", this);
                 }
-            }
-            
-            if (!unstuckAttempted)
-            {
-                Debug.LogWarning("[SahurAIController STUCK_RECOVERY] Oyuncu veya NavMesh durumu nedeniyle hiçbir takılma çözme yöntemi denenemedi.", this);
-            }
 
-            agent.isStopped = false; 
-            chasePathRecalculateTimer = 0f; 
-            lastPlayerPositionForPathRecalculation = playerTransform != null ? playerTransform.position + (Vector3.one * 100f) : Vector3.one * 100f; 
-            stuckTimer = 0f;   
+                agent.isStopped = false; 
+                chasePathRecalculateTimer = 0f; 
+                lastPlayerPositionForPathRecalculation = playerTransform != null ? playerTransform.position + (Vector3.one * 100f) : Vector3.one * 100f; 
+                stuckTimer = 0f;   
+            }
         }
     }
 
-    private void HandlePlayerCaught()
+    private void HandlePlayerCaught() // YAKALAMA ÖNCESİ KONTROL
     {
+        if (isPlayerHiding) 
+        {
+            Debug.Log("[SahurAIController] Oyuncu saklandığı için yakalama sekansı İPTAL EDİLDİ.", this);
+            // Eğer Sahur dolaba ulaştıysa ve oyuncu hala saklanıyorsa, devriyeye dönmesi gerekir.
+            // Bu durum UpdateChasingPlayerState içinde yönetilecek.
+            // Veya burada zorla Idle/Patrol'e geçirilebilir.
+            if (currentState != AIState.Patrolling && currentState != AIState.Idle && hasReachedHidingSpotDoor) 
+            { // Eğer dolaba ulaşıldıysa ve Sahur hala başka bir moddaysa
+                 SwitchToState(AIState.Patrolling); 
+            }
+            return; // Oyuncu saklanıyorsa yakalama işlemini yapma
+        }
+
         SwitchToState(AIState.ActionInProgress);
 
         if (agent.isOnNavMesh)
@@ -1167,6 +1300,8 @@ public class SahurAIController : MonoBehaviour
                 return; 
             }
         }
+        isChasingDueToVision = false; // Bebek yakma ile başlayan kovalama, görerek değil
+        sahurKnowsPlayerIsHiding = false; // Oyuncu saklanıyorsa bile bu kovalama onu geçersiz kılar (ya da dolaptan çıkarır gibi düşünebiliriz)
         SwitchToState(AIState.ChasingPlayer);
     }
 
@@ -1417,7 +1552,7 @@ public class SahurAIController : MonoBehaviour
 
         finalBlackScreenImage.color = endColor;
         finalBlackScreenImage.gameObject.SetActive(false); // Tamamen kaybolunca objeyi de kapatabiliriz
-        Debug.Log("[SahurAIController] Siyah ekran fade-out animasyonu tamamlandı ve obje deaktif edildi.", this);
+        Debug.Log("[SahurAIController] Siyah ekran fade out animasyonu tamamlandı ve obje deaktif edildi.", this);
     }
 
     private System.Collections.IEnumerator DisableAnimatorAfterAnimation(Animator animatorToDisable)
@@ -1434,5 +1569,113 @@ public class SahurAIController : MonoBehaviour
             animatorToDisable.enabled = false;
             Debug.Log("[SahurAIController] DisableAnimatorAfterAnimation: Player Animator devre dışı bırakıldı (0.5s sonra).", this);
         }
+    }
+
+    // YENİ METOT (Saklanma durumu için)
+    private void HandlePlayerHidingSpotStateChanged(SpindHidingSpot spot, bool isHiding)
+    {
+        isPlayerHiding = isHiding;
+        if (isHiding)
+        {
+            Debug.Log($"[SahurAIController] Oyuncu '{spot.gameObject.name}' dolabında saklandı.", this);
+            currentHidingSpotLocation = spot.transform; // Dolabın transformunu al
+            hasReachedHidingSpotDoor = false; 
+
+            // Eğer Sahur oyuncuyu kovalıyorsa veya son gördüğü yer oyuncunun saklandığı yerin yakınındaysa,
+            // Sahur'un bu durumu fark etmesini ve dolaba yönelmesini sağlayalım.
+            if (currentState == AIState.ChasingPlayer || 
+                (playerTransform != null && Vector3.Distance(transform.position, playerTransform.position) < 10f)) // Örnek bir farkındalık mesafesi
+            {
+                sahurKnowsPlayerIsHiding = true;
+                agent.stoppingDistance = agentStoppingDistance; // Dolaba varınca durması için stopping distance'ı ayarla
+                Debug.Log("[SahurAIController] Sahur, oyuncunun saklandığını fark etti ve dolaba yöneliyor.", this);
+                // ChasingPlayer state'i zaten dolaba yönlendirecek.
+                 if (currentState != AIState.ChasingPlayer) SwitchToState(AIState.ChasingPlayer);
+            }
+            else
+            {
+                sahurKnowsPlayerIsHiding = false; // Sahur uzaktaysa veya devriyedeyse fark etmesin
+            }
+        }
+        else
+        {
+            Debug.Log($"[SahurAIController] Oyuncu '{spot.gameObject.name}' dolabından çıktı.", this);
+            currentHidingSpotLocation = null;
+            sahurKnowsPlayerIsHiding = false;
+            hasReachedHidingSpotDoor = false;
+            agent.stoppingDistance = playerCatchDistance; // Normal yakalama mesafesine dön
+
+            // Eğer Sahur dolaba doğru gidiyorduysa (veya dolapta bekliyorduysa) ve oyuncu çıktıysa,
+            // oyuncuyu tekrar normal şekilde kovalamaya başlasın.
+            if (currentState == AIState.ChasingPlayer || currentState == AIState.ActionInProgress)
+            {
+                if (playerTransform != null) // Oyuncu referansı hala geçerliyse
+                {
+                    Debug.Log("[SahurAIController] Oyuncu dolaptan çıktı. Normal kovalama devam ediyor.", this);
+                    SwitchToState(AIState.ChasingPlayer); 
+                }
+                else
+                {
+                    SwitchToState(AIState.Idle); // Oyuncu bir şekilde kaybolduysa Idle'a geç
+                }
+            }
+        }
+    }
+
+    private void UpdateHidingSpotWaitTimer() // YENİ METOT (Dolapta bekleme için)
+    {
+        if (hidingSpotWaitTimer > 0)
+        {
+            hidingSpotWaitTimer -= Time.deltaTime;
+            if (hidingSpotWaitTimer <= 0)
+            {
+                Debug.Log("[SahurAIController] Dolapta bekleme süresi doldu. Devriyeye dönülüyor.", this);
+                sahurKnowsPlayerIsHiding = false; // Artık oyuncunun saklandığını bilmiyor (yeni bir bilgi gelene kadar)
+                currentHidingSpotLocation = null;
+                hasReachedHidingSpotDoor = false;
+                agent.stoppingDistance = playerCatchDistance; // Normal yakalama mesafesine dön
+                SwitchToState(AIState.Patrolling);
+            }
+        }
+    }
+
+    // YENİ METOT (Oyuncuyu Görüş Kontrolü)
+    private bool CanSeePlayer()
+    {
+        if (playerTransform == null || isPlayerHiding) // Oyuncu yoksa veya saklanıyorsa göremez
+        {
+            return false;
+        }
+
+        Vector3 directionToPlayer = playerTransform.position - transform.position;
+        float distanceToPlayer = directionToPlayer.magnitude;
+
+        if (distanceToPlayer > visionDistance)
+        {
+            return false; // Oyuncu görüş mesafesinin dışında
+        }
+
+        float angleToPlayer = Vector3.Angle(transform.forward, directionToPlayer.normalized);
+        // visionAngle toplam açı olduğu için yarısıyla karşılaştırıyoruz
+        if (angleToPlayer > visionAngle / 2f) 
+        {
+            return false; // Oyuncu görüş açısının dışında
+        }
+
+        // Sahur'un göz hizasından (biraz yukarıdan) ışın gönderelim
+        Vector3 rayOrigin = transform.position + Vector3.up * 1.5f; // Sahur'un boyuna göre ayarlanabilir
+        Vector3 playerTargetPosition = playerTransform.position + Vector3.up * 0.5f; // Oyuncunun vücudunun ortasına doğru
+        Vector3 directionToPlayerTarget = playerTargetPosition - rayOrigin;
+
+        RaycastHit hit;
+        if (Physics.Raycast(rayOrigin, directionToPlayerTarget.normalized, out hit, distanceToPlayer, obstacleLayer))
+        {
+            // Arada bir engel var
+            // Debug.Log($"[SahurAIController] CanSeePlayer: Oyuncuya giden ışın bir engele çarptı: {hit.collider.name}");
+            return false; 
+        }
+        
+        // Debug.Log("[SahurAIController] CanSeePlayer: Oyuncu GÖRÜLDÜ!");
+        return true; // Oyuncu görüş alanında ve arada engel yok
     }
 }

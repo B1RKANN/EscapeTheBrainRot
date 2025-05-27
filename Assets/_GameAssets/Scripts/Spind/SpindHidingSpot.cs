@@ -6,6 +6,9 @@ namespace EscapeTheBrainRot
     [RequireComponent(typeof(BoxCollider))]  // Trigger için BoxCollider gerekli
     public class SpindHidingSpot : MonoBehaviour
     {
+        // Event to notify when player's hiding state in a specific spot changes
+        public static event System.Action<SpindHidingSpot, bool> OnPlayerHidingSpotStateChanged;
+
         [Header("Etkileşim Ayarları")]
         public Transform exitPosition;            // Çıkış pozisyonu
         public HideButton hideButtonUI;           // Saklanma buton UI referansı
@@ -222,6 +225,8 @@ namespace EscapeTheBrainRot
                 audioSource.clip = doorCloseSound;
                 audioSource.Play();
             }
+
+            OnPlayerHidingSpotStateChanged?.Invoke(this, true); // Oyuncu saklandı
         }
         
         private void ExitHidingSpot()
@@ -269,6 +274,8 @@ namespace EscapeTheBrainRot
                 audioSource.clip = doorOpenSound;
                 audioSource.Play();
             }
+
+            OnPlayerHidingSpotStateChanged?.Invoke(this, false); // Oyuncu çıktı
         }
         
         // UI elementlerini aktif/pasif yap
