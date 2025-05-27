@@ -1,5 +1,7 @@
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.UI;
+using EscapeTheBrainRot; // PlayerMove namespace'i için eklendi
 // System.Collections Coroutine için gerekli değil, kaldırılabilir.
 
 /// <summary>
@@ -65,6 +67,106 @@ public class SahurAIController : MonoBehaviour
     [Tooltip("Ajanın takıldığını varsaymadan önce ne kadar süre hareketsiz kalabileceği (saniye).")]
     [SerializeField] private float maxStuckTime = 0.2f; // GEÇİCİ: Agresif test için çok düşük bir değere ayarlandı (0.2f)
 
+    [Header("Jumpscare Settings")]
+    [Tooltip("Jumpscare sırasında aktifleşecek ana GameObject.")]
+    [SerializeField] private GameObject jumpscareObject;
+    [Tooltip("JumpscareObject'in ebeveyni olan ve anime edilecek BlackBackground Image bileşeni.")]
+    [SerializeField] private Image blackBackgroundImage; 
+    [Tooltip("BlackBackgroundImage'ın ebeveyni olan ve anime edilecek Sahur Image bileşeni.")]
+    [SerializeField] private Image sahurBackgroundImage; 
+    [Tooltip("Jumpscare animasyonunun toplam süresi (saniye).")]
+    [SerializeField] private float jumpscareAnimationDuration = 0.75f;
+    [Tooltip("BlackBackground için hedef alfa değeri.")]
+    [SerializeField, Range(0f, 1f)] private float blackBackgroundTargetAlpha = 0.8f;
+    [Tooltip("SahurImage için hedef alfa değeri.")]
+    [SerializeField, Range(0f, 1f)] private float sahurImageTargetAlpha = 0.6f;
+    [Tooltip("Animasyon sırasında SahurImage için uygulanacak maksimum ölçek.")]
+    [SerializeField] private float sahurImageMaxScale = 1.1f;
+    [Tooltip("Jumpscare animasyonunun tepe noktasında ne kadar süre ekranda kalacağı (saniye).")]
+    [SerializeField] private float jumpscareHoldDuration = 1.0f;
+    [Tooltip("Jumpscare sonrası UI elemanlarının eski haline dönme süresi (saniye).")]
+    [SerializeField] private float jumpscareFadeOutDuration = 0.5f;
+
+    [Header("Jumpscare Sound Settings")]
+    [Tooltip("Oyuncu yakalandığında çalınacak ses klibi.")]
+    [SerializeField] private AudioClip jumpscareAudioClip;
+    [Tooltip("Jumpscare sesini çalmak için kullanılacak AudioSource. Genellikle Sahur objesinin üzerinde veya bir alt objesinde bulunur.")]
+    [SerializeField] private AudioSource jumpscareAudioSource;
+    [Tooltip("Jumpscare sesi için uygulanacak ek ses çarpanı (1 varsayılan, >1 daha yüksek ses).")]
+    [SerializeField, Range(0.1f, 5f)] private float jumpscareVolumeMultiplier = 1.0f;
+
+    [Header("Physical Attack Settings")]
+    [Tooltip("Fiziksel saldırı sekansının gerçekleşme olasılığı (0 ile 1 arasında. 0: Asla, 1: Her zaman).")]
+    [SerializeField, Range(0f, 1f)] private float attackSequenceProbability = 0.4f; 
+    [Tooltip("Sahur'un kendi Animator'ündeki saldırı animasyonunu başlatan TRIGGER parametresinin adı.")]
+    [SerializeField] private string attackAnimationTriggerName = "Attack"; // Trigger adı
+    [Tooltip("Sahur'un oyuncunun ne kadar önünde belireceği (metre).")]
+    [SerializeField] private float positionInFrontOffset = 1.2f;
+    [Tooltip("Saldırı animasyonu başladıktan ne kadar sonra ekran flaşının/oyuncu düşmesinin tetikleneceği (saniye).")]
+    [SerializeField] private float attackHitDelay = 0.3f;
+    [Tooltip("Ekran kırmızı flaşı için kullanılacak UI Image.")]
+    [SerializeField] private UnityEngine.UI.Image screenFlashImage;
+    [Tooltip("Ekran flaşının rengi (Alfa değeri de önemlidir).")]
+    [SerializeField] private Color screenFlashColor = new Color(0.8f, 0f, 0f, 0.6f); // Kırmızı, biraz transparan
+    [Tooltip("Ekran flaşının belirginleşme süresi (saniye).")]
+    [SerializeField] private float screenFlashInDuration = 0.05f;
+    [Tooltip("Ekran flaşının kaybolma süresi (saniye).")]
+    [SerializeField] private float screenFlashOutDuration = 0.25f;
+    [Tooltip("Fiziksel saldırı sonrası Sahur'un Idle'a geçmeden önce bekleme süresi (saniye).")]
+    [SerializeField] private float postAttackFreezeDuration = 1.5f;
+
+    [Header("Player Animation Durations")] 
+    [Tooltip("Oyuncunun düşme animasyonunun toplam süresi (saniye). Göz kapanma efekti bu süre bittikten sonra başlayacak.")]
+    [SerializeField] private float playerFallAnimationDuration = 1.5f; 
+
+    [Header("UI Jumpscare Flash Settings")] 
+    [Tooltip("UI Jumpscare sırasında ekran flaşının tetiklenmesinden önceki gecikme (saniye).")]
+    [SerializeField] private float uiJumpscareFlashDelay = 0.1f;
+
+    [Header("Player & UI Control for Attack")]
+    [Tooltip("Oyuncunun hareketlerini kontrol eden betik (PlayerMovement vb.). Bu betikte hareketi durduracak/başlatacak bir public metot olmalı.")]
+    [SerializeField] private MonoBehaviour playerMovementScript; 
+    [Tooltip("Fiziksel saldırı sırasında gizlenecek ana oyun arayüzü Canvas'ı.")]
+    [SerializeField] private Canvas mainGameCanvas;
+
+    [Header("New Catch Sequence Settings")]
+    [Tooltip("Sahur'un child objesi olan ve oyuncunun saldırı sırasında çekileceği nokta.")]
+    [SerializeField] private Transform catchPoint;
+    [Tooltip("Oyuncunun Animator bileşeni (düşme animasyonu için).")]
+    [SerializeField] private Animator playerAnimator;
+    [Tooltip("Oyuncunun Animator'ündeki düşme animasyonunu başlatan TRIGGER parametresinin adı.")]
+    [SerializeField] private string playerFallAnimationTriggerName = "Fall";
+    [Tooltip("Kan efekti için kullanılacak UI Image. (Eski screenFlashImage buraya atanabilir)")]
+    [SerializeField] private UnityEngine.UI.Image bloodEffectImage;
+    [Tooltip("Kan efektinin rengi (Alfa değeri de önemlidir).")]
+    [SerializeField] private Color bloodEffectColor = new Color(0.8f, 0f, 0f, 0.6f);
+    [Tooltip("Kan efektinin belirginleşme süresi (saniye).")]
+    [SerializeField] private float bloodEffectInDuration = 0.05f;
+    [Tooltip("Kan efektinin ekranda kalma süresi (fade in sonrası).")]
+    [SerializeField] private float bloodEffectHoldDuration = 0.15f;
+    [Tooltip("Kan efektinin kaybolma süresi (saniye).")]
+    [SerializeField] private float bloodEffectOutDuration = 0.25f;
+    [Tooltip("Oyuncu düştükten ve kan efekti bittikten sonra gözlerin kapanmaya başlamasından önceki bekleme süresi (saniye).")]
+    [SerializeField] private float postFallDelayBeforeEyeClose = 0.5f;
+    [Tooltip("Oyuncunun yeniden doğacağı nokta.")]
+    [SerializeField] private Transform playerRespawnPoint;
+    [Tooltip("Oyuncunun Animator'ündeki Idle animasyonunu başlatan TRIGGER parametresinin adı.")]
+    [SerializeField] private string playerIdleAnimationTriggerName = "Idle";
+
+    [Header("Eye Closing Effect Settings")]
+    // [Tooltip("Göz kapanma efekti için üst göz kapağı UI Image.")] // KALDIRILDI
+    // [SerializeField] private Image topEyelidImage; // KALDIRILDI
+    // [Tooltip("Göz kapanma efekti için alt göz kapağı UI Image.")] // KALDIRILDI
+    // [SerializeField] private Image bottomEyelidImage; // KALDIRILDI
+    [Tooltip("Göz kapakları kapandıktan sonra veya tek başına ekranı karartmak için kullanılacak ana siyah ekran.")] // Tooltip güncellendi
+    [SerializeField] private Image finalBlackScreenImage; 
+    [Tooltip("Gözlerin kapanma animasyonunun süresi (saniye).")]
+    [SerializeField] private float eyeCloseAnimDuration = 1.0f;
+    [Tooltip("Göz kapakları ve son siyah ekran için hedef alfa değeri.")]
+    [SerializeField, Range(0f, 1f)] private float eyeCloseTargetAlpha = 1.0f;
+    [Tooltip("Siyah ekranın tekrar kaybolma (fade out) animasyon süresi (saniye).")] // YENİ
+    [SerializeField] private float blackScreenFadeOutDuration = 0.75f; // YENİ
+
     // --- Özel Değişkenler ---
     private NavMeshAgent agent;
     private Animator animator;
@@ -75,7 +177,8 @@ public class SahurAIController : MonoBehaviour
         Idle,
         Patrolling,
         OpeningDoor,
-        ChasingPlayer
+        ChasingPlayer,
+        ActionInProgress
     }
     private AIState currentState;
 
@@ -85,21 +188,24 @@ public class SahurAIController : MonoBehaviour
     private int isChasingAnimatorHash;
 
     private System.Collections.Generic.List<Transform> availablePatrolPoints;
-    private System.Collections.Generic.List<Vector3> recentlyVisitedPositions; // Artık pozisyonları saklayacağız
+    private System.Collections.Generic.List<Vector3> recentlyVisitedPositions; 
 
     private Door currentTargetDoor = null;
     private float doorWaitTimer;
-    private float stuckTimer = 0f; // Takılma sayacı
+    private float stuckTimer = 0f; 
 
-    // Chase state için yeni değişkenler
     private float chasePathRecalculateTimer; 
     private const float ChasePathRecalculateInterval = 0.3f; 
     private Vector3 lastPlayerPositionForPathRecalculation; 
-    private const float PlayerMoveThresholdForPathRecalcSqr = 0.25f; // 0.5 birim kare = 0.25f
+    private const float PlayerMoveThresholdForPathRecalcSqr = 0.25f; 
 
-    // PathPending takılmasını tespit için yeni değişkenler
     private float currentPathPendingTimer = 0f;
-    private const float MaxPathPendingDuration = 1.0f; // Ajanın en fazla ne kadar süre PathPending'de kalabileceği (saniye)
+    private const float MaxPathPendingDuration = 1.0f; 
+
+    private bool shouldForceLookAtSahur = false;
+    private Vector3 forcedLookAtPoint_SahurPosition;
+    private Transform playerToForceLook;
+
 
     // --- Unity Mesajları ---
 
@@ -160,8 +266,7 @@ public class SahurAIController : MonoBehaviour
         agent.speed = walkSpeed;
         agent.stoppingDistance = agentStoppingDistance;
 
-        // NavMeshAgent dönüş ayarları
-        agent.updateRotation = true; // Ajanın rotasyonu kendisinin güncellemesini sağla
+        agent.updateRotation = true; 
         agent.angularSpeed = agentAngularSpeed;
         agent.acceleration = agentAcceleration;
 
@@ -178,15 +283,14 @@ public class SahurAIController : MonoBehaviour
             else
             {
                 Debug.LogError("[SahurAIController] Player Transform referansı Inspector'dan atanmamış ve 'Player' tag'ine sahip bir obje bulunamadı! Kovalama özelliği çalışmayabilir.", this);
-                // Oyuncu yoksa kovalama mantığı düzgün çalışmaz, bu durumda bazı özellikler devre dışı bırakılabilir veya hata verilebilir.
             }
         }
 
-        if (availablePatrolPoints.Count == 0 && currentState != AIState.ChasingPlayer) // Eğer chase ile başlıyorsa patrol point olmaması sorun değil
+        if (availablePatrolPoints.Count == 0 && currentState != AIState.ChasingPlayer) 
         {
             Debug.LogError("[SahurAIController] Başlangıçta hiç devriye noktası bulunamadı! Lütfen 'PatrolPointsParent' altına devriye noktaları ekleyin ve atamayı kontrol edin. Betik devre dışı bırakılıyor.", this);
             enabled = false;
-            currentState = AIState.Initializing; // Hatalı durumu belirt
+            currentState = AIState.Initializing; 
             return;
         }
 
@@ -199,7 +303,6 @@ public class SahurAIController : MonoBehaviour
         if (patrolPointsParent == null)
         {
             Debug.LogError("[SahurAIController] PatrolPointsParent atanmamış! Inspector üzerinden atama yapın.", this);
-            // Hata durumunda availablePatrolPoints boş kalacak ve Start içinde kontrol edilecek.
             return;
         }
 
@@ -212,7 +315,7 @@ public class SahurAIController : MonoBehaviour
         {
             foreach (Transform child in patrolPointsParent)
             {
-                if (child != null && child != transform) // Kendisini eklememeli
+                if (child != null && child != transform) 
                 {
                     availablePatrolPoints.Add(child);
                 }
@@ -239,6 +342,21 @@ public class SahurAIController : MonoBehaviour
             case AIState.ChasingPlayer:
                 UpdateChasingPlayerState();
                 break;
+            case AIState.ActionInProgress:
+                break;
+        }
+    }
+
+    void LateUpdate()
+    {
+        if (shouldForceLookAtSahur && playerToForceLook != null)
+        {
+            // Sahur'un GÜNCEL pozisyonunu her LateUpdate'te al
+            forcedLookAtPoint_SahurPosition = this.transform.position; 
+
+            Vector3 lookPos = forcedLookAtPoint_SahurPosition;
+            lookPos.y = playerToForceLook.position.y; // Oyuncunun Y seviyesinde bak
+            playerToForceLook.LookAt(lookPos);
         }
     }
 
@@ -248,7 +366,6 @@ public class SahurAIController : MonoBehaviour
     {
         if (currentState == newState && currentState != AIState.Initializing) return;
 
-        // Debug.Log($"[SahurAIController] Durum Değişikliği: {currentState} -> {newState}", this);
         currentState = newState;
 
         switch (currentState)
@@ -265,6 +382,9 @@ public class SahurAIController : MonoBehaviour
             case AIState.ChasingPlayer:
                 EnterChasingPlayerState();
                 break;
+            case AIState.ActionInProgress: 
+                Debug.Log("[SahurAIController] ActionInProgress durumuna girildi.", this);
+                break;
         }
     }
 
@@ -272,13 +392,15 @@ public class SahurAIController : MonoBehaviour
     private void EnterIdleState()
     {
         Debug.Log("[SahurAIController] Idle durumuna girildi.", this);
+        shouldForceLookAtSahur = false; // Her ihtimale karşı Idle'a girerken bakış zorlamasını kapat
+        playerToForceLook = null;
         if (agent.isOnNavMesh)
         {
             agent.isStopped = true;
             agent.ResetPath();
         }
         animator.SetBool(isWalkingAnimatorHash, false);
-        animator.SetBool(isChasingAnimatorHash, false); // Kovalama animasyonunu da kapat
+        animator.SetBool(isChasingAnimatorHash, false); 
         currentIdleTimer = idleDuration;
     }
 
@@ -295,13 +417,13 @@ public class SahurAIController : MonoBehaviour
     private void EnterPatrollingState()
     {
         Debug.Log("[SahurAIController] Patrolling durumuna girildi.", this);
-        agent.speed = walkSpeed; // Hızı normale ayarla
+        agent.speed = walkSpeed; 
         agent.angularSpeed = agentAngularSpeed;
         agent.acceleration = agentAcceleration;
-        agent.stoppingDistance = agentStoppingDistance; // Durma mesafesini normale ayarla
-        agent.isStopped = false; // Harekete izin ver
-        animator.SetBool(isChasingAnimatorHash, false); // Kovalama animasyonunu kapat (eğer açıksa)
-        animator.SetBool(isWalkingAnimatorHash, true); // Yürüme animasyonunu aç
+        agent.stoppingDistance = agentStoppingDistance; 
+        agent.isStopped = false; 
+        animator.SetBool(isChasingAnimatorHash, false); 
+        animator.SetBool(isWalkingAnimatorHash, true); 
         currentPatrolTimer = minPatrolDuration; 
         TrySetNewRandomDestination();
         Debug.Log($"[SahurAIController PATROL_ENTER] Agent Speed: {agent.speed}, IsStopped: {agent.isStopped}");
@@ -311,15 +433,12 @@ public class SahurAIController : MonoBehaviour
     {
         currentPatrolTimer -= Time.deltaTime;
 
-        // Yolda kapı kontrolü
-        if (agent.hasPath && agent.remainingDistance > agentStoppingDistance) // Sadece hareket halindeyken ve hedefe varmamışken kontrol et
+        if (agent.hasPath && agent.remainingDistance > agentStoppingDistance) 
         {
             RaycastHit hit;
             Vector3 directionToTarget = (agent.steeringTarget - transform.position).normalized;
             float distanceToSteeringTarget = Vector3.Distance(transform.position, agent.steeringTarget);
-            float checkDistance = Mathf.Min(doorInteractionDistance, distanceToSteeringTarget); // Kapıya çarpacak kadar yakın mı diye bakarız
-
-            // Debug.DrawRay(transform.position + Vector3.up * 0.5f, directionToTarget * checkDistance, Color.magenta, 0.1f);
+            float checkDistance = Mathf.Min(doorInteractionDistance, distanceToSteeringTarget); 
 
             if (Physics.Raycast(transform.position + Vector3.up * 0.5f, directionToTarget, out hit, checkDistance, doorLayer))
             {
@@ -329,7 +448,7 @@ public class SahurAIController : MonoBehaviour
                     Debug.Log($"[SahurAIController] Yol üzerinde kapalı kapı ({door.gameObject.name}) tespit edildi. Açılacak.", this);
                     currentTargetDoor = door;
                     SwitchToState(AIState.OpeningDoor);
-                    return; // OpeningDoor durumuna geçildiği için bu frame'de başka işlem yapma
+                    return; 
                 }
             }
         }
@@ -341,7 +460,6 @@ public class SahurAIController : MonoBehaviour
         if (hasReachedDestination)
         {
             Debug.Log("[SahurAIController] Hedefe ulaşıldı.", this);
-            // Hedefe ulaşıldı. Şimdi minPatrolDuration dolmuş mu diye bak.
             if (currentPatrolTimer <= 0f)
             {
                 Debug.Log("[SahurAIController] Minimum devriye süresi doldu. Idle durumuna geçiliyor.", this);
@@ -349,24 +467,18 @@ public class SahurAIController : MonoBehaviour
             }
             else
             {
-                // Süre dolmadı ama hedefe vardı, hemen yeni bir hedef arasın.
                 Debug.Log("[SahurAIController] Minimum devriye süresi henüz dolmadı ama hedefe ulaşıldı. Yeni hedef aranıyor.", this);
                 TrySetNewRandomDestination();
             }
         }
-        // Eğer hedefe henüz ulaşılmadıysa ve currentPatrolTimer > 0 ise yürümeye devam et.
-        // Eğer hedefe henüz ulaşılmadıysa AMA currentPatrolTimer <= 0 ise,
-        // karakter hedefe ulaşana kadar yürümeye devam ETMELİ.
-        // Zamanlayıcı sadece "bir sonraki hedef ne zaman seçilmeli" veya "Idle'a ne zaman geçilmeli"
-        // kararını, hedefe ULAŞILDIKTAN SONRA etkilemeli.
     }
 
-    // --- OpeningDoor Durumu --- (Yeni eklenecek)
+    // --- OpeningDoor Durumu --- 
     private void EnterOpeningDoorState()
     {
         Debug.Log("[SahurAIController] OpeningDoor durumuna girildi.", this);
-        agent.isStopped = true; // Kapıyı açarken dursun
-        animator.SetBool(isWalkingAnimatorHash, false); // Yürüme animasyonunu kapat
+        agent.isStopped = true; 
+        animator.SetBool(isWalkingAnimatorHash, false); 
 
         if (currentTargetDoor != null && !currentTargetDoor.isOpen)
         {
@@ -376,7 +488,6 @@ public class SahurAIController : MonoBehaviour
         }
         else
         {
-            // Hedef kapı yoksa veya zaten açıksa, hemen devriyeye dön
             Debug.LogWarning("[SahurAIController] OpeningDoor durumuna girildi ama hedef kapı yok veya zaten açık. Patrolling durumuna dönülüyor.", this);
             SwitchToState(AIState.Patrolling);
         }
@@ -388,15 +499,12 @@ public class SahurAIController : MonoBehaviour
         if (doorWaitTimer <= 0f)
         {
             Debug.Log("[SahurAIController] Kapı açma bekleme süresi doldu. Patrolling durumuna dönülüyor.", this);
-            currentTargetDoor = null; // Kapı referansını temizle
-            SwitchToState(AIState.Patrolling); // Devriyeye devam et
-            // Patrolling durumuna geçerken EnterPatrollingState içinde yeni hedef belirlenecek veya mevcut hedefe devam edilecek.
-            // Eğer aynı hedefe devam ediliyorsa ve kapı açıldıysa, artık ilerleyebilmesi lazım.
-            // Bu yüzden EnterPatrollingState içinde agent.isStopped = false; tekrar çağrılacak.
+            currentTargetDoor = null; 
+            SwitchToState(AIState.Patrolling); 
         }
     }
 
-    // --- ChasingPlayer Durumu --- (Yeni eklenecek)
+    // --- ChasingPlayer Durumu --- 
     private void EnterChasingPlayerState()
     {
         Debug.Log("[SahurAIController] ChasingPlayer durumuna girildi!", this);
@@ -412,10 +520,10 @@ public class SahurAIController : MonoBehaviour
         agent.acceleration = agentAcceleration; 
         agent.isStopped = false; 
         animator.SetBool(isWalkingAnimatorHash, false); 
-        animator.SetBool(isChasingAnimatorHash, true);  // DİKKAT: Burası isChasingAnimatorHash olmalıydı, düzeltiyorum.
+        animator.SetBool(isChasingAnimatorHash, true);  
         agent.stoppingDistance = playerCatchDistance; 
         stuckTimer = 0f; 
-        currentPathPendingTimer = 0f; // PathPending zamanlayıcısını sıfırla
+        currentPathPendingTimer = 0f; 
         
         chasePathRecalculateTimer = 0f; 
         lastPlayerPositionForPathRecalculation = playerTransform.position + (Vector3.one * 100f); 
@@ -434,14 +542,13 @@ public class SahurAIController : MonoBehaviour
             return;
         }
         
-        if (agent == null || !agent.enabled || !agent.isOnNavMesh) // isOnNavMesh kontrolü eklendi
+        if (agent == null || !agent.enabled || !agent.isOnNavMesh) 
         {
             Debug.LogError($"[SahurAIController CHASE_UPDATE] NavMeshAgent null, devre dışı veya NavMesh üzerinde değil! Agent Durumu: {(agent == null ? "Null" : agent.enabled.ToString())}, IsOnNavMesh: {(agent == null ? "N/A" : agent.isOnNavMesh.ToString())}", this);
             SwitchToState(AIState.Idle); 
             return;
         }
 
-        // Ajanın kendi pozisyonunu NavMesh'e göre doğrula (çok küçük bir arama ile)
         NavMeshHit agentPosHit;
         if (agent.isOnNavMesh && NavMesh.SamplePosition(transform.position, out agentPosHit, 0.5f, NavMesh.AllAreas))
         {
@@ -459,9 +566,7 @@ public class SahurAIController : MonoBehaviour
             SwitchToState(AIState.Idle);
             return;
         }
-        // Eğer SamplePosition başarısız oldu ama ajan NavMesh üzerindeyse, bu genellikle küçük bir tutarsızlıktır, devam edilebilir.
 
-        // Hedef Belirleme Mantığı
         chasePathRecalculateTimer -= Time.deltaTime;
         Vector3 currentPlayerPos = playerTransform.position;
         float playerMovementSinceLastRecalcSqr = (currentPlayerPos - lastPlayerPositionForPathRecalculation).sqrMagnitude;
@@ -469,13 +574,13 @@ public class SahurAIController : MonoBehaviour
         if (chasePathRecalculateTimer <= 0f || 
             playerMovementSinceLastRecalcSqr > PlayerMoveThresholdForPathRecalcSqr || 
             !agent.hasPath || 
-            agent.pathStatus != NavMeshPathStatus.PathComplete) // PathComplete değilse (yani Partial veya Invalid ise) yolu yeniden hesapla
+            agent.pathStatus != NavMeshPathStatus.PathComplete) 
         {
             if (!agent.pathPending && agent.isOnNavMesh)
             {
                 Vector3 targetNavMeshPosition = currentPlayerPos;
                 NavMeshHit playerNavMeshHit;
-                float sampleRadius = 3.0f; // SamplePosition arama yarıçapını biraz artıralım
+                float sampleRadius = 3.0f; 
                 if (NavMesh.SamplePosition(currentPlayerPos, out playerNavMeshHit, sampleRadius, NavMesh.AllAreas))
                 {
                     targetNavMeshPosition = playerNavMeshHit.position;
@@ -488,55 +593,50 @@ public class SahurAIController : MonoBehaviour
                 bool setDestSuccess = agent.SetDestination(targetNavMeshPosition);
                 if (setDestSuccess)
                 {
-                    lastPlayerPositionForPathRecalculation = currentPlayerPos; // Başarıyla hedef ayarlandıysa zamanlayıcıyı ve pozisyonu güncelle
+                    lastPlayerPositionForPathRecalculation = currentPlayerPos; 
                     chasePathRecalculateTimer = ChasePathRecalculateInterval;
-                    // Debug.Log($"[SahurAIController CHASE_UPDATE] Yeni kovalama hedefi: {targetNavMeshPosition} (Oyuncu: {currentPlayerPos})");
                 }
-                else if (agent.isOnNavMesh) // Sadece NavMesh üzerindeyken hata ver (diğer türlü zaten başarısız olması beklenir)
+                else if (agent.isOnNavMesh) 
                 {
                     Debug.LogError($"[SahurAIController CHASE_UPDATE] SetDestination ({targetNavMeshPosition}) BAŞARISIZ OLDU. PathStatus: {agent.pathStatus}", this);
                 }
             }
         }
         
-        if (agent.isStopped) // Eğer bir şekilde durdurulduysa harekete geçir
+        if (agent.isStopped) 
         {
             agent.isStopped = false;
             Debug.Log("[SahurAIController CHASE_UPDATE] Agent.isStopped true idi, false yapıldı.", this);
         }
 
-        // Oyuncuyu Yakalama Kontrolü
         if (agent.hasPath && agent.remainingDistance <= agent.stoppingDistance && !agent.pathPending)
         {
             Debug.Log($"[SahurAIController] Oyuncu yakalandı! AgentPos: {transform.position}, PlayerPos: {playerTransform.position}, Hedef: {agent.destination}", this);
-            animator.SetBool(isChasingAnimatorHash, false);
-            // agent.isStopped = true; // SwitchToState Idle bunu yapacak
-            SwitchToState(AIState.Idle); // ÖNEMLİ: Yakaladıktan sonra Idle durumuna geç (veya başka bir uygun duruma)
-            return; // Durum değişti, bu update fonksiyonundan çık
+            
+            animator.SetBool(isChasingAnimatorHash, false); 
+            HandlePlayerCaught(); 
+            return; 
         }
 
-        // Takılma Tespiti (Stuck Detection)
         if (Time.frameCount % 15 == 0) { 
             Debug.Log($"[SahurAIController DIAGNOSTIC] Velocity: {agent.velocity.magnitude:F3}, HasPath: {agent.hasPath}, PathPending: {agent.pathPending}, PathStatus: {agent.pathStatus}, RemainingDist: {agent.remainingDistance:F2}, StoppingDist: {agent.stoppingDistance:F2}, IsStopped: {agent.isStopped}, StuckTimer: {stuckTimer:F2}, PathPendingTimer: {currentPathPendingTimer:F2}", this);
         }
 
-        // PathPending Takılma Tespiti
         if (agent.pathPending)
         {
             currentPathPendingTimer += Time.deltaTime;
             if (currentPathPendingTimer >= MaxPathPendingDuration && agent.velocity.magnitude < 0.05f)
             {
                 Debug.LogWarning($"[SahurAIController CHASE_PATH_PENDING_STUCK] Ajan {MaxPathPendingDuration} saniyedir PathPending'de ve hızı çok düşük! Takılma çözümü tetikleniyor.", this);
-                stuckTimer = maxStuckTime; // Takılma çözümünü doğrudan tetikle
+                stuckTimer = maxStuckTime; 
             }
         }
         else
         {
-            currentPathPendingTimer = 0f; // Yol beklenmiyorsa sayacı sıfırla
+            currentPathPendingTimer = 0f; 
         }
 
-        // Normal Takılma Tespiti (Eğer PathPending takılması zaten tetiklemediyse)
-        if (stuckTimer < maxStuckTime) // Eğer PathPending takılması zaten stuckTimer'ı max yapmadıysa
+        if (stuckTimer < maxStuckTime) 
         {
             bool isPotentiallyStuck = agent.hasPath && agent.velocity.magnitude < 0.05f && agent.remainingDistance > agent.stoppingDistance && !agent.pathPending;
             bool isPathProblem = (!agent.hasPath || agent.pathStatus == NavMeshPathStatus.PathPartial || agent.pathStatus == NavMeshPathStatus.PathInvalid) && agent.velocity.magnitude < 0.05f && !agent.pathPending;
@@ -555,7 +655,6 @@ public class SahurAIController : MonoBehaviour
             }
         }
 
-        // Takılma Çözümü (Stuck Resolution)
         if (stuckTimer >= maxStuckTime)
         {
             Debug.LogError($"[SahurAIController CHASE_STUCK_DETECTED] Ajan {maxStuckTime} saniyedir takılı! Kademeli agresif çözüm deneniyor. PathStatus: {agent.pathStatus}", this);
@@ -566,9 +665,8 @@ public class SahurAIController : MonoBehaviour
 
             if (playerTransform != null && agent.isOnNavMesh) 
             {
-                // --- ADIM 1: Oyuncunun yakınına (biraz arkasına) ışınlanmayı dene ---
                 Vector3 dirToPlayerFromAgent = (playerTransform.position - transform.position).normalized;
-                Vector3 targetWarpPosNearPlayer = playerTransform.position - dirToPlayerFromAgent * (playerCatchDistance + 0.5f); // Yakalama mesafesinden biraz daha geriye
+                Vector3 targetWarpPosNearPlayer = playerTransform.position - dirToPlayerFromAgent * (playerCatchDistance + 0.5f); 
                 NavMeshHit hitNearPlayer;
                 if (NavMesh.SamplePosition(targetWarpPosNearPlayer, out hitNearPlayer, 1.5f, NavMesh.AllAreas))
                 {
@@ -582,7 +680,6 @@ public class SahurAIController : MonoBehaviour
                     unstuckAttempted = true;
                 }
 
-                // --- ADIM 2: Çok yönlü kaçış ışınlanması (Eğer Adım 1 başarısızsa) ---
                 if (!warpSuccess) 
                 {
                     Debug.LogWarning("[SahurAIController STUCK_RECOVERY_LVL1] Başarısız. LVL2 (çok yönlü kaçış) deneniyor.", this);
@@ -594,7 +691,7 @@ public class SahurAIController : MonoBehaviour
                         transform.position + backwardDir * 2.0f, 
                         transform.position + sidewayDir * 2.0f,  
                         transform.position - sidewayDir * 2.0f, 
-                        playerTransform.position - dirToPlayerFromAgent * (playerCatchDistance + 2.0f) // Oyuncudan daha da geriye
+                        playerTransform.position - dirToPlayerFromAgent * (playerCatchDistance + 2.0f) 
                     };
                     NavMeshHit hitGenericEscape;
                     foreach (Vector3 potentialPos in escapeDirs)
@@ -619,11 +716,10 @@ public class SahurAIController : MonoBehaviour
                     unstuckAttempted = true;
                 }
 
-                // --- ADIM 3: Son Çare - Doğrudan Translate ve Warp (Eğer Adım 1 & 2 başarısızsa) ---
                 if (!warpSuccess)
                 {
                     Debug.LogWarning("[SahurAIController STUCK_RECOVERY_LVL2] Başarısız. LVL3 (Translate + Warp) deneniyor.", this);
-                    Vector3 moveDir = dirToPlayerFromAgent * 0.1f; // Çok küçük bir hareket
+                    Vector3 moveDir = dirToPlayerFromAgent * 0.1f; 
                     transform.Translate(moveDir, Space.World);
                     Debug.Log($"[SahurAIController STUCK_RECOVERY_LVL3] Ajan {moveDir.magnitude} birim translate edildi: {transform.position}", this);
                     NavMeshHit snapHit;
@@ -636,7 +732,6 @@ public class SahurAIController : MonoBehaviour
                     else if (!agent.isOnNavMesh)
                     {
                          Debug.LogError("[SahurAIController STUCK_RECOVERY_LVL3] Translate sonrası ajan NavMesh DIŞINDA KALDI! Son pozisyon: {transform.position}", this);
-                         // Burada ajanı yeniden etkinleştirmek veya başka bir acil durum planı gerekebilir.
                     }
                     else { Debug.LogWarning("[SahurAIController STUCK_RECOVERY_LVL3] Translate sonrası warp için geçerli NavMesh noktası bulunamadı.", this);}
                     unstuckAttempted = true;
@@ -655,14 +750,426 @@ public class SahurAIController : MonoBehaviour
         }
     }
 
-    // --- Event Handler ---
+    private void HandlePlayerCaught()
+    {
+        SwitchToState(AIState.ActionInProgress);
+
+        if (agent.isOnNavMesh)
+        {
+            agent.isStopped = true;
+            agent.ResetPath();
+        }
+        animator.SetBool(isWalkingAnimatorHash, false); 
+
+        StartCoroutine(PerformCombinedAttackSequence());
+    }
+
+    private System.Collections.IEnumerator PerformCombinedAttackSequence()
+    {
+        Debug.Log("[SahurAIController] Yakalama Sekansı (Güncel Sahur Pozisyonu ile Bakış) Başlatılıyor.", this);
+
+        // 1. ADIM: Oyuncu hareketini HEMEN durdur
+        SetPlayerMovementActive(false);
+        // 2. ADIM: UI'ı devre dışı bırak
+        SetMainCanvasActive(false);
+
+        // 3. ADIM: Jumpscare sesini çal (isteğe bağlı)
+        if (jumpscareAudioClip != null && jumpscareAudioSource != null)
+        {
+            if (!jumpscareAudioSource.isPlaying)
+            {
+                jumpscareAudioSource.PlayOneShot(jumpscareAudioClip, jumpscareVolumeMultiplier);
+                Debug.Log($"[SahurAIController] Yakalanma sesi çalındı: {jumpscareAudioClip.name} (Çarpan: {jumpscareVolumeMultiplier})", this);
+            }
+        }
+
+        // 4. ADIM: Mevcut frame'in sonunu bekle (Tüm Update/LateUpdate'ler bitsin)
+        yield return new WaitForEndOfFrame();
+        Debug.Log("[SahurAIController] WaitForEndOfFrame tamamlandı.", this);
+
+        // 5. ADIM: Oyuncuyu CatchPoint'e taşı, Sahur'a baktır ve bakış zorlamasını başlat
+        if (playerTransform != null && catchPoint != null)
+        {
+            Vector3 targetPosition = catchPoint.position;
+            targetPosition.y = playerTransform.position.y; 
+            playerTransform.position = targetPosition;
+            Debug.Log($"[SahurAIController] Oyuncu ({playerTransform.name}) CatchPoint'e ({targetPosition}) taşındı (EndOfFrame sonrası).", this);
+
+            Vector3 initialLookAtSahurPosition = transform.position; 
+            initialLookAtSahurPosition.y = playerTransform.position.y; 
+            playerTransform.LookAt(initialLookAtSahurPosition);
+            Debug.Log($"[SahurAIController] Oyuncu Sahur'a ({initialLookAtSahurPosition}) baktırıldı (EndOfFrame sonrası).", this);
+
+            playerToForceLook = playerTransform;
+            // forcedLookAtPoint_SahurPosition = transform.position; // Bu satır artık LateUpdate'te dinamik olarak ayarlanacak
+            shouldForceLookAtSahur = true; 
+        }
+        else
+        {
+            Debug.LogError("[SahurAIController] PlayerTransform veya CatchPoint atanmamış! Yakalama sekansı düzgün çalışmayabilir.", this);
+            SwitchToState(AIState.Idle); 
+            yield break;
+        }
+
+        // 6. ADIM: Sahur'un saldırı animasyonunu oynat
+        if (animator != null && !string.IsNullOrEmpty(attackAnimationTriggerName))
+        {
+             if (animator.runtimeAnimatorController != null) {
+                bool triggerParamExists = false;
+                foreach (AnimatorControllerParameter param in animator.parameters)
+                {
+                    if (param.name == attackAnimationTriggerName && param.type == AnimatorControllerParameterType.Trigger)
+                    {
+                        triggerParamExists = true;
+                        break;
+                    }
+                }
+                if (triggerParamExists) {
+                    animator.SetTrigger(attackAnimationTriggerName);
+                    Debug.Log($"[SahurAIController] Sahur saldırı animasyonu ('{attackAnimationTriggerName}') tetiklendi.", this);
+                } else {
+                    Debug.LogError($"[SahurAIController] Sahur Animator Controller'da '{attackAnimationTriggerName}' adında bir Trigger parametresi bulunamadı!", animator);
+                }
+             } else {
+                Debug.LogError("[SahurAIController] Sahur Animator bileşenine bir Animator Controller atanmamış!", animator);
+             }
+        }
+        else { Debug.LogWarning("[SahurAIController] Sahur Animator veya attackAnimationTriggerName atanmamış/belirtilmemiş.", this); }
+
+        // 7. ADIM: Oyuncunun düşme animasyonu ve kan efekti için bekle (Sahur'un saldırı animasyonu başladıktan sonra)
+        Debug.Log($"[SahurAIController] Oyuncunun düşmesi için AttackHitDelay ({attackHitDelay}s) bekleniyor.", this);
+        yield return new WaitForSeconds(attackHitDelay);
+
+        // 8. ADIM: Kan efektini başlat
+        if (bloodEffectImage != null)
+        {
+            StartCoroutine(PlayBloodEffectCoroutine());
+        }
+        else
+        {
+            Debug.LogWarning("[SahurAIController] BloodEffectImage atanmamış. Kan efekti gösterilemeyecek.", this);
+        }
+
+        // 9. ADIM: Oyuncunun düşme animasyonunu tetikle
+        if (playerAnimator != null && !string.IsNullOrEmpty(playerFallAnimationTriggerName))
+        {
+            playerAnimator.enabled = true; 
+            bool fallTriggerExists = false;
+            foreach (AnimatorControllerParameter param in playerAnimator.parameters)
+            {
+                if (param.name == playerFallAnimationTriggerName && param.type == AnimatorControllerParameterType.Trigger)
+                {
+                    fallTriggerExists = true;
+                    break;
+                }
+            }
+            if(fallTriggerExists)
+            {
+                // Düşme animasyonu başlamadan hemen önce Sahur'a bakmayı bırak
+                shouldForceLookAtSahur = false;
+                playerToForceLook = null; 
+
+                playerAnimator.SetTrigger(playerFallAnimationTriggerName);
+                Debug.Log($"[SahurAIController] Oyuncu düşme animasyonu ('{playerFallAnimationTriggerName}') tetiklendi.", this);
+                
+            }
+            else
+            {
+                Debug.LogError($"[SahurAIController] Player Animator Controller'da '{playerFallAnimationTriggerName}' adında bir Trigger parametresi bulunamadı!", playerAnimator);
+                playerAnimator.enabled = false; 
+                // shouldForceLookAtSahur = false; // KALDIRILDI
+            }
+        }
+        else
+        {
+            Debug.LogWarning("[SahurAIController] PlayerAnimator veya playerFallAnimationTriggerName atanmamış/belirtilmemiş. Oyuncu düşme animasyonu oynatılamayacak.", this);
+            // shouldForceLookAtSahur = false; // KALDIRILDI
+        }
+        
+        // 10. ADIM: Oyuncunun düşme animasyonunun bitmesini bekle
+        Debug.Log($"[SahurAIController] Oyuncunun düşme animasyonunun ({playerFallAnimationDuration}s) bitmesi bekleniyor.", this);
+        yield return new WaitForSeconds(playerFallAnimationDuration);
+        Debug.Log("[SahurAIController] Oyuncunun düşme animasyonu bitti.", this);
+
+        // 11. ADIM: Gözlerin kapanmasından önceki ek bekleme (isteğe bağlı)
+        if (postFallDelayBeforeEyeClose > 0)
+        {
+            Debug.Log($"[SahurAIController] Göz kapanmasından önce ek bekleme ({postFallDelayBeforeEyeClose}s) başlıyor.", this);
+            yield return new WaitForSeconds(postFallDelayBeforeEyeClose);
+        }
+
+        // 12. ADIM: Göz kapanma efektini başlat
+        Debug.Log("[SahurAIController] Göz kapanma efekti başlatılıyor.", this);
+        StartCoroutine(AnimateEyeClosingCoroutine());
+
+        // 13. ADIM: Göz kapanma animasyonunun bitmesini bekle
+        yield return new WaitForSeconds(eyeCloseAnimDuration);
+        Debug.Log("[SahurAIController] Göz kapanma efekti tamamlandı.", this);
+
+        // Gözler tamamen kapandı, bakış zorlama referanslarını temizle.
+        shouldForceLookAtSahur = false; 
+        playerToForceLook = null; 
+
+        // YENİ ADIM: Siyah ekran tamamen göründüğünde kalp UI'larını aktive et
+        if (HeartManager.Instance != null)
+        {
+            HeartManager.Instance.ActivateAndDisplayHearts();
+        }
+        else
+        {
+            Debug.LogWarning("[SahurAIController] HeartManager.Instance bulunamadı. Kalp UI'ları aktive edilemedi.", this);
+        }
+
+        // YENİ ADIM: Siyah ekran için ek 1 saniye bekleniyor.
+        Debug.Log("[SahurAIController] Siyah ekran için ek 1 saniye bekleniyor.", this);
+        yield return new WaitForSeconds(1.0f);
+
+        // YENİ ADIMLAR: Siyah ekran sonrası 0.5sn bekle, Idle animasyonu, ışınlanma, Animator'ü kapatma
+        Debug.Log("[SahurAIController] Yeniden doğma sekansı için 0.5 saniye bekleniyor.", this);
+        yield return new WaitForSeconds(0.5f);
+
+        if (playerAnimator != null) // Önce null kontrolü
+        {
+            playerAnimator.enabled = true; // Idle animasyonunu tetiklemeden önce Animator'ü aktif et
+            if (!string.IsNullOrEmpty(playerIdleAnimationTriggerName))
+            {
+                bool idleTriggerExists = false;
+                foreach (AnimatorControllerParameter param in playerAnimator.parameters)
+                {
+                    if (param.name == playerIdleAnimationTriggerName && param.type == AnimatorControllerParameterType.Trigger)
+                    {
+                        idleTriggerExists = true;
+                        break;
+                    }
+                }
+                if (idleTriggerExists)
+                {
+                    playerAnimator.SetTrigger(playerIdleAnimationTriggerName);
+                    Debug.Log($"[SahurAIController] Oyuncu Idle animasyonu ('{playerIdleAnimationTriggerName}') tetiklendi.", this);
+                }
+                else
+                {
+                    Debug.LogError($"[SahurAIController] Player Animator Controller'da '{playerIdleAnimationTriggerName}' adında bir Trigger parametresi bulunamadı!", playerAnimator);
+                }
+            }
+            else
+            {
+                Debug.LogWarning("[SahurAIController] playerIdleAnimationTriggerName belirtilmemiş. Idle animasyonu tetiklenemiyor.", this);
+            }
+        }
+        else
+        {
+            Debug.LogWarning("[SahurAIController] PlayerAnimator null veya devre dışı. Idle animasyonu tetiklenemiyor.", this);
+        }
+
+        if (playerTransform != null && playerRespawnPoint != null)
+        {
+            playerTransform.position = playerRespawnPoint.position;
+            playerTransform.rotation = playerRespawnPoint.rotation; // Opsiyonel: Rotasyonu da ayarla
+            Debug.Log($"[SahurAIController] Oyuncu, '{playerRespawnPoint.name}' noktasına ışınlandı ({playerRespawnPoint.position}).", this);
+        }
+        else
+        {
+            Debug.LogWarning("[SahurAIController] PlayerTransform veya playerRespawnPoint atanmamış. Oyuncu ışınlanamıyor.", this);
+        }
+
+        if (playerAnimator != null && playerAnimator.enabled)
+        {
+            // Animator'ü hemen devre dışı bırakmak yerine, Idle animasyonunun bir frame oynaması için
+            // kısa bir bekleme veya DisableAnimatorAfterAnimation coroutine'i kullanılabilir.
+            // Şimdilik direkt devre dışı bırakıyoruz.
+            StartCoroutine(DisableAnimatorAfterAnimation(playerAnimator)); // Bu coroutine zaten vardı, onu kullanalım.
+            Debug.Log("[SahurAIController] Oyuncu Animator'ü devre dışı bırakılacak (Coroutine ile).", this);
+        }
+
+        // 13.A ADIM: Oyuncunun canını azalt ve kalp animasyonunu oynat
+        if (HeartManager.Instance != null)
+        {
+            Debug.Log("[SahurAIController] Kalp azaltma animasyonu başlatılıyor.", this);
+            yield return StartCoroutine(HeartManager.Instance.TakeDamageAndAnimate(1));
+            Debug.Log("[SahurAIController] Kalp azaltma animasyonu tamamlandı.", this);
+        }
+        else
+        {
+            Debug.LogWarning("[SahurAIController] HeartManager.Instance bulunamadı. Can azaltılamadı.", this);
+        }
+
+        // 13.B ADIM: Canvas açılmadan önce 0.5 saniye bekle
+        Debug.Log("[SahurAIController] Ana canvas açılmadan önce 0.5sn bekleniyor.", this);
+        yield return new WaitForSeconds(0.5f);
+
+        // 14. ADIM: Oyuncu Animator'ünü devre dışı bırak (Bu adım Canvas aktif edilmeden önce veya sonra olabilir, şimdilik burada kalıyor)
+        if (playerAnimator != null && playerAnimator.enabled) 
+        {
+            Debug.Log("[SahurAIController] Göz kapanma bitti, oyuncu Animator'ü devre dışı bırakılacak.", this);
+            StartCoroutine(DisableAnimatorAfterAnimation(playerAnimator));
+        }
+        
+        Debug.Log("[SahurAIController] Yakalama Sekansı Tamamlandı. Durum Idle'a çevriliyor.", this);
+        
+        SetPlayerMovementActive(true); 
+        SetMainCanvasActive(true);     // Bu satır zaten vardı, ana canvas'ı tekrar aktif eder.
+
+        // YENİ ADIM: Siyah ekran kapanmadan önce kalpleri deaktif et
+        if (HeartManager.Instance != null)
+        {
+            HeartManager.Instance.DeactivateHearts();
+        }
+        else
+        {
+            Debug.LogWarning("[SahurAIController] HeartManager.Instance bulunamadı. Kalpler deaktive edilemedi.", this);
+        }
+
+        // 15. ADIM: Siyah ekranı animasyonlu olarak kaldır (Fade Out)
+        if (finalBlackScreenImage != null && finalBlackScreenImage.gameObject.activeSelf) // Eğer zaten kapanmışsa tekrar fade out yapma
+        {
+            Debug.Log("[SahurAIController] Siyah ekran fade out animasyonu başlatılıyor.", this);
+            yield return StartCoroutine(AnimateBlackScreenFadeOutCoroutine());
+            Debug.Log("[SahurAIController] Siyah ekran fade out animasyonu tamamlandı.", this);
+        }
+        
+        SwitchToState(AIState.Idle);
+    }
+
+    private void SetPlayerMovementActive(bool isActive)
+    {
+        if (playerMovementScript == null)
+        {
+            Debug.LogWarning("[SahurAIController] PlayerMovementScript atanmamış. Oyuncu hareketi kontrol edilemiyor.", this);
+            return;
+        }
+
+        PlayerMove pm = playerMovementScript as PlayerMove;
+        if (pm != null)
+        {
+            pm.SetMovementActive(isActive);
+            Debug.Log("[SahurAIController] Oyuncu hareketi (PlayerMove.SetMovementActive ile) " + (isActive ? "aktif" : "deaktif") + " edildi.", this);
+        }
+        else
+        {
+            Debug.LogWarning("[SahurAIController] PlayerMovementScript, PlayerMove tipine doğrudan cast edilemedi. Script'in enabled durumu değiştiriliyor: " + playerMovementScript.GetType().Name, this);
+            playerMovementScript.enabled = isActive;
+        }
+    }
+
+    private void SetMainCanvasActive(bool isActive)
+    {
+        if (mainGameCanvas != null)
+        {
+            mainGameCanvas.gameObject.SetActive(isActive);
+            Debug.Log("[SahurAIController] Ana oyun Canvas'ı " + (isActive ? "aktif" : "deaktif") + " edildi.", this);
+        }
+        else
+        {
+            Debug.LogWarning("[SahurAIController] MainGameCanvas atanmamış. Canvas aktivitesi kontrol edilemiyor.", this);
+        }
+    }
+
+    private System.Collections.IEnumerator PlayScreenFlashCoroutine()
+    {
+        Image targetImage = screenFlashImage; 
+        Color flashColor = screenFlashColor;
+        float fadeInDuration = screenFlashInDuration;
+        float holdDuration = 0.1f; 
+        float fadeOutDuration = screenFlashOutDuration;
+
+        if (bloodEffectImage != null) 
+        {
+            targetImage = bloodEffectImage;
+            flashColor = bloodEffectColor;
+            fadeInDuration = bloodEffectInDuration;
+            holdDuration = bloodEffectHoldDuration; 
+            fadeOutDuration = bloodEffectOutDuration;
+        }
+        else if (screenFlashImage == null)
+        {
+            Debug.LogError("[SahurAIController] Ne BloodEffectImage ne de ScreenFlashImage atanmamış! Efekt çalışmayacak.", this);
+            yield break;
+        }
+
+
+        Debug.Log($"[SahurAIController] {(targetImage == bloodEffectImage ? "Kan Efekti" : "Ekran Flaş")} Animasyonu Başlıyor (Renk: {flashColor}, GirişSüresi: {fadeInDuration}).", this);
+        targetImage.gameObject.SetActive(true);
+        Color initialImageColor = targetImage.color;
+        initialImageColor.a = 0f; 
+        targetImage.color = initialImageColor; 
+
+        float elapsedTime = 0f;
+        while (elapsedTime < fadeInDuration)
+        {
+            elapsedTime += Time.deltaTime;
+            float progress = Mathf.Clamp01(elapsedTime / fadeInDuration);
+            targetImage.color = Color.Lerp(initialImageColor, flashColor, progress);
+            yield return null;
+        }
+        targetImage.color = flashColor;
+
+        if (holdDuration > 0)
+        {
+            yield return new WaitForSeconds(holdDuration);
+        }
+
+        elapsedTime = 0f;
+        Color transparentColor = flashColor;
+        transparentColor.a = 0f; 
+
+        while (elapsedTime < fadeOutDuration)
+        {
+            elapsedTime += Time.deltaTime;
+            float progress = Mathf.Clamp01(elapsedTime / fadeOutDuration);
+            targetImage.color = Color.Lerp(flashColor, transparentColor, progress);
+            yield return null;
+        }
+
+        targetImage.color = transparentColor;
+        targetImage.gameObject.SetActive(false); 
+        Debug.Log($"[SahurAIController] {(targetImage == bloodEffectImage ? "Kan Efekti" : "Ekran Flaş")} Animasyonu Tamamlandı.", this);
+    }
+
+    private System.Collections.IEnumerator PlayJumpscareAnimationCoroutine()
+    {
+        Debug.LogWarning("[SahurAIController] PlayJumpscareAnimationCoroutine çağrıldı ancak artık kullanılmıyor olmalı!", this);
+        if (jumpscareObject != null) jumpscareObject.SetActive(false); 
+        yield break; 
+    }
+
+    private System.Collections.IEnumerator TriggerScreenFlashAfterDelay(float delay)
+    {
+        if (delay > 0)
+        {
+            yield return new WaitForSeconds(delay);
+        }
+        if (screenFlashImage != null) 
+        {
+            StartCoroutine(PlayScreenFlashCoroutine());
+        }
+        else
+        {
+            Debug.LogWarning("[SahurAIController] Gecikmeli ekran flaşı tetiklenemedi, ScreenFlashImage null.", this);
+        }
+    }
+
     private void HandleBabyBurned()
     {
         Debug.Log("[SahurAIController] Bebek Sahur yakıldı bilgisi alındı! Oyuncu kovalanacak.", this);
+        if (playerTransform == null)
+        {
+            Debug.LogWarning("[SahurAIController] HandleBabyBurned: PlayerTransform null, kovalamaya geçilemiyor. Oyuncu bulunmaya çalışılacak.");
+            GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
+            if (playerObject != null)
+            {
+                playerTransform = playerObject.transform;
+                Debug.Log("[SahurAIController] HandleBabyBurned: PlayerTransform 'Player' tag'i ile tekrar bulundu.", this);
+            }
+            else
+            {
+                Debug.LogError("[SahurAIController] HandleBabyBurned: PlayerTransform hala bulunamadı! Kovalama başlatılamıyor.", this);
+                return; 
+            }
+        }
         SwitchToState(AIState.ChasingPlayer);
     }
 
-    // --- Hareket Mantığı ---
     private void TrySetNewRandomDestination()
     {
         if (availablePatrolPoints == null || availablePatrolPoints.Count == 0)
@@ -676,7 +1183,7 @@ public class SahurAIController : MonoBehaviour
         bool destinationFound = false;
 
         System.Collections.Generic.List<Transform> candidatePoints = new System.Collections.Generic.List<Transform>(availablePatrolPoints);
-        ShuffleList(candidatePoints); // Aday noktaları karıştır
+        ShuffleList(candidatePoints); 
 
         for (int i = 0; i < candidatePoints.Count; i++)
         {
@@ -696,34 +1203,26 @@ public class SahurAIController : MonoBehaviour
             if (!isRecent)
             {
                 NavMeshPath path = new NavMeshPath();
-                Vector3 sampledTargetPosition = potentialDestPosition; // Varsayılan olarak orijinal pozisyon
+                Vector3 sampledTargetPosition = potentialDestPosition; 
 
                 NavMeshHit hit;
-                // Devriye noktasının 1.0f birim yakınına kadar NavMesh'te bir nokta ara (veya agent radius kadar)
                 if (NavMesh.SamplePosition(potentialDestPosition, out hit, agent.radius * 2f > 0.5f ? agent.radius * 2f : 0.5f, NavMesh.AllAreas))
                 {
-                    sampledTargetPosition = hit.position; // Bulunan en yakın NavMesh pozisyonunu kullan
+                    sampledTargetPosition = hit.position; 
                 }
                 else
                 {
                     Debug.LogWarning($"[SahurAIController] {testPoint.name} ({potentialDestPosition}) için NavMesh.SamplePosition BAŞARISIZ. Orijinal pozisyon ile devam edilecek.", this);
-                    // SamplePosition başarısız olursa, bu nokta muhtemelen NavMesh'e çok uzak.
-                    // Bu durumda CalculatePath'in de başarısız olması beklenir, yine de devam edip loglayalım.
                 }
 
-                // --- YENİ EKLENEN KONTROL ---
                 if (!agent.isOnNavMesh)
                 {
                     Debug.LogError($"[SahurAIController DIAGNOSTIC] Ajan, CalculatePath çağrılmadan önce NavMesh üzerinde DEĞİL! Pozisyon: {agent.transform.position}", this);
                 }
-                // --- KONTROL SONU ---
 
                 if (agent.CalculatePath(sampledTargetPosition, path) && path.status == NavMeshPathStatus.PathComplete)
                 {
-                     selectedPoint = testPoint; // Orijinal Transform'u sakla
-                     // Hedef olarak SamplePosition'dan gelen noktayı kullanacağız.
-                     // Bu yüzden SetDestination'da sampledTargetPosition'ı kullanmak üzere bir işaret bırakalım.
-                     // Şimdilik selectedPoint'i bulduk demek yeterli.
+                     selectedPoint = testPoint; 
                      destinationFound = true;
                      break;
                 }
@@ -736,33 +1235,26 @@ public class SahurAIController : MonoBehaviour
 
         if (destinationFound && selectedPoint != null)
         {
-            // Yeniden SamplePosition yapmak yerine, yukarıdaki döngüde bulunan 'sampledTargetPosition'ı kullanmalıyız.
-            // Bunun için 'sampledTargetPosition'ı döngü dışına taşımamız veya
-            // döngüden çıkarken doğru değeri saklamamız gerekir.
-            // Geçici çözüm olarak, eğer selectedPoint bulunduysa, onun pozisyonunu tekrar sample edelim.
             Vector3 finalTargetPosition = selectedPoint.position;
             NavMeshHit finalHit;
             if (NavMesh.SamplePosition(selectedPoint.position, out finalHit, agent.radius * 2f > 0.5f ? agent.radius * 2f : 0.5f, NavMesh.AllAreas))
             {
                 finalTargetPosition = finalHit.position;
             }
-            // Eğer yukarıdaki SamplePosition başarısız olursa, finalTargetPosition orijinal selectedPoint.position kalır.
 
             agent.SetDestination(finalTargetPosition);
             Debug.Log($"[SahurAIController] Yeni devriye hedefi: {selectedPoint.name} (Orijinal: {selectedPoint.position}, Ayarlanan Hedef: {finalTargetPosition})", this);
 
-            // Yeni hedef pozisyonunu listeye ekle
             if (recentlyVisitedPositions.Count >= maxRecentDestinationsToRemember)
             {
                 recentlyVisitedPositions.RemoveAt(0);
             }
             recentlyVisitedPositions.Add(selectedPoint.position);
-            currentPatrolTimer = minPatrolDuration; // Yeni hedef için zamanlayıcıyı sıfırla
+            currentPatrolTimer = minPatrolDuration; 
         }
         else
         {
             Debug.LogWarning($"[SahurAIController] Tekrarlamayan veya ulaşılabilir uygun bir devriye noktası bulunamadı ({candidatePoints.Count} aday denendi). Mevcut hedefe devam ediliyor veya Idle durumuna geçiliyor.", this);
-            // Eğer hiçbir hedef bulunamazsa ve zaten bir hedefi yoksa Idle'a geç
             if (!agent.hasPath || agent.remainingDistance < agent.stoppingDistance)
             {
                 SwitchToState(AIState.Idle);
@@ -784,7 +1276,6 @@ public class SahurAIController : MonoBehaviour
         }
     }
 
-    // --- Editör Yardımları (Gizmos) ---
     private void OnDrawGizmosSelected()
     {
         if (patrolPointsParent != null)
@@ -797,6 +1288,13 @@ public class SahurAIController : MonoBehaviour
                     Gizmos.DrawWireSphere(point.position, 0.3f);
                 }
             }
+        }
+
+        if (catchPoint != null)
+        {
+            Gizmos.color = Color.red;
+            Gizmos.DrawSphere(catchPoint.position, 0.25f);
+            Gizmos.DrawLine(transform.position, catchPoint.position);
         }
 
         if (Application.isPlaying && agent != null && agent.hasPath)
@@ -812,4 +1310,129 @@ public class SahurAIController : MonoBehaviour
             }
         }
     }
-} 
+
+    private System.Collections.IEnumerator PlayBloodEffectCoroutine()
+    {
+        if (bloodEffectImage == null)
+        {
+            Debug.LogError("[SahurAIController] BloodEffectImage atanmamış! Kan efekti çalışmayacak.", this);
+            yield break;
+        }
+
+        Debug.Log($"[SahurAIController] Kan Efekti Animasyonu Başlıyor (Renk: {bloodEffectColor}, GirişSüresi: {bloodEffectInDuration}).", this);
+        bloodEffectImage.gameObject.SetActive(true);
+        Color initialImageColor = bloodEffectImage.color; 
+        initialImageColor.a = 0f; 
+        bloodEffectImage.color = initialImageColor;
+
+        float elapsedTime = 0f;
+        while (elapsedTime < bloodEffectInDuration)
+        {
+            elapsedTime += Time.deltaTime;
+            float progress = Mathf.Clamp01(elapsedTime / bloodEffectInDuration);
+            bloodEffectImage.color = Color.Lerp(initialImageColor, bloodEffectColor, progress);
+            yield return null;
+        }
+        bloodEffectImage.color = bloodEffectColor;
+
+        if (bloodEffectHoldDuration > 0)
+        {
+            yield return new WaitForSeconds(bloodEffectHoldDuration);
+        }
+
+        elapsedTime = 0f;
+        Color transparentColor = bloodEffectColor; 
+        transparentColor.a = 0f;
+
+        while (elapsedTime < bloodEffectOutDuration)
+        {
+            elapsedTime += Time.deltaTime;
+            float progress = Mathf.Clamp01(elapsedTime / bloodEffectOutDuration);
+            bloodEffectImage.color = Color.Lerp(bloodEffectColor, transparentColor, progress);
+            yield return null;
+        }
+
+        bloodEffectImage.color = transparentColor;
+        bloodEffectImage.gameObject.SetActive(false);
+        Debug.Log("[SahurAIController] Kan Efekti Animasyonu Tamamlandı.", this);
+    }
+
+    private System.Collections.IEnumerator AnimateEyeClosingCoroutine()
+    {
+        bool useFinalBlackScreen = finalBlackScreenImage != null;
+
+        if (!useFinalBlackScreen)
+        {
+            Debug.LogWarning("[SahurAIController] Göz kapanma efekti için 'FinalBlackScreenImage' atanmamış.", this);
+            yield break;
+        }
+
+        float elapsedTime = 0f;
+        finalBlackScreenImage.gameObject.SetActive(true);
+        Color finalColor = finalBlackScreenImage.color;
+        finalColor.a = 0;
+        finalBlackScreenImage.color = finalColor;
+        
+        Debug.Log($"[SahurAIController] Siyah ekran fade-in animasyonu başlıyor. Süre: {eyeCloseAnimDuration}s", this);
+
+        while (elapsedTime < eyeCloseAnimDuration)
+        {
+            elapsedTime += Time.deltaTime;
+            float progress = Mathf.Clamp01(elapsedTime / eyeCloseAnimDuration);
+
+            Color c = finalBlackScreenImage.color;
+            c.a = Mathf.Lerp(0, eyeCloseTargetAlpha, progress);
+            finalBlackScreenImage.color = c;
+            yield return null;
+        }
+
+        Color endColor = finalBlackScreenImage.color;
+        endColor.a = eyeCloseTargetAlpha;
+        finalBlackScreenImage.color = endColor;
+        Debug.Log("[SahurAIController] Siyah ekran fade-in animasyonu tamamlandı.", this);
+    }
+
+    private System.Collections.IEnumerator AnimateBlackScreenFadeOutCoroutine() // YENİ COROUTINE
+    {
+        if (finalBlackScreenImage == null || !finalBlackScreenImage.gameObject.activeSelf)
+        {
+            Debug.LogWarning("[SahurAIController] FinalBlackScreenImage atanmamış veya aktif değil. Fade out yapılamıyor.", this);
+            yield break;
+        }
+
+        float elapsedTime = 0f;
+        Color startColor = finalBlackScreenImage.color; // Mevcut alfa değerinden başla (muhtemelen eyeCloseTargetAlpha)
+        Color endColor = startColor;
+        endColor.a = 0f; // Hedef alfa: tamamen transparan
+        
+        Debug.Log($"[SahurAIController] Siyah ekran fade-out animasyonu başlıyor. Süre: {blackScreenFadeOutDuration}s", this);
+
+        while (elapsedTime < blackScreenFadeOutDuration)
+        {
+            elapsedTime += Time.deltaTime;
+            float progress = Mathf.Clamp01(elapsedTime / blackScreenFadeOutDuration);
+            finalBlackScreenImage.color = Color.Lerp(startColor, endColor, progress);
+            yield return null;
+        }
+
+        finalBlackScreenImage.color = endColor;
+        finalBlackScreenImage.gameObject.SetActive(false); // Tamamen kaybolunca objeyi de kapatabiliriz
+        Debug.Log("[SahurAIController] Siyah ekran fade-out animasyonu tamamlandı ve obje deaktif edildi.", this);
+    }
+
+    private System.Collections.IEnumerator DisableAnimatorAfterAnimation(Animator animatorToDisable)
+    {
+        if (animatorToDisable == null || !animatorToDisable.enabled)
+        {
+            yield break; 
+        }
+
+        yield return new WaitForSeconds(0.5f); // Trigger'ın ve Idle animasyonunun biraz oynaması için bekleme süresini artırdık
+
+        if (animatorToDisable != null && animatorToDisable.enabled) 
+        {
+            animatorToDisable.enabled = false;
+            Debug.Log("[SahurAIController] DisableAnimatorAfterAnimation: Player Animator devre dışı bırakıldı (0.5s sonra).", this);
+        }
+    }
+}

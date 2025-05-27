@@ -281,15 +281,32 @@ public class BabySahurController : MonoBehaviour
         }
         dahaOnceKacmayiDeneydi = true;
 
-        float kacisSansi = 1.0f;
-        if (debugMode) Debug.Log($"[KAÇIŞ KONTROL GEÇİCİ TEST] {gameObject.name} ({GetInstanceID()}) - Kaçış Şansı %100 olarak ayarlandı.", this);
+        float kacisSansi;
+        switch (yakilmisBabySahurSayisi)
+        {
+            case 0:
+                kacisSansi = 0.1f; // %10
+                break;
+            case 1:
+                kacisSansi = 0.4f; // %40
+                break;
+            case 2:
+                kacisSansi = 0.5f; // %50
+                break;
+            case 3:
+                kacisSansi = 0.8f; // %80
+                break;
+            default: // 4 ve üzeri
+                kacisSansi = 1.0f; // %100
+                break;
+        }
+        if (debugMode) Debug.Log($"[KAÇIŞ KONTROL] {gameObject.name} ({GetInstanceID()}) - Yakılmış: {yakilmisBabySahurSayisi}, Hesaplanan Şans: {kacisSansi * 100}%", this);
 
-        if (debugMode) Debug.Log($"[KAÇIŞ KONTROL] {gameObject.name} ({GetInstanceID()}) - Yakılmış: {yakilmisBabySahurSayisi}, Hesaplanan Şans: {kacisSansi * 100}% (Test nedeniyle %100)", this);
         float rastgeleDeger = Random.Range(0f, 1f);
 
         if (rastgeleDeger < kacisSansi) 
         {
-            if (debugMode) Debug.Log($"[KAÇIŞ KONTROL] {gameObject.name} ({GetInstanceID()}) - Kaçış Şansı TUTTU! (Test nedeniyle garantili)", this);
+            if (debugMode) Debug.Log($"[KAÇIŞ KONTROL] {gameObject.name} ({GetInstanceID()}) - Kaçış Şansı TUTTU!", this);
             if (babySahurKacisParent != null && babySahurKacisParent.childCount > 0)
             {
                 transform.rotation = Quaternion.Euler(AYAKTA_ROTATION_X, transform.eulerAngles.y, transform.eulerAngles.z);
@@ -331,7 +348,7 @@ public class BabySahurController : MonoBehaviour
         }
         else
         {
-            if (debugMode) Debug.Log($"[KAÇIŞ KONTROL] {gameObject.name} ({GetInstanceID()}) - Kaçış Şansı TUTMADI! Alınıyor. (Bu mesaj testte görünmemeli)", this);
+            if (debugMode) Debug.Log($"[KAÇIŞ KONTROL] {gameObject.name} ({GetInstanceID()}) - Kaçış Şansı TUTMADI! Alınıyor.", this);
             AlVeYokEt();
         }
     }

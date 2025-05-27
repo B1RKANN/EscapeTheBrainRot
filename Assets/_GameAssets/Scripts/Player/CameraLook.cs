@@ -8,7 +8,7 @@ public class CameraLook : MonoBehaviour
     [SerializeField] private Transform PlayerBody;
     public Vector2 LockAxis;
     public float Sensitivity = 20f;
-    void Update()
+    void LateUpdate()
     {
         XMove = LockAxis.x*Sensitivity*Time.deltaTime;
         YMove = LockAxis.y*Sensitivity*Time.deltaTime;

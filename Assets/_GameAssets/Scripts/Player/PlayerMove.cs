@@ -7,6 +7,7 @@ namespace EscapeTheBrainRot
         public FixedJoystick joystick;
         public float SpeedMove = 5f;
         private CharacterController characterController;
+        private bool canMove = true; // Hareketi kontrol etmek için bayrak
         
         [Header("Yürüme Sarsıntı Ayarları")]
         public WalkBobbingEffect walkEffect;
@@ -15,21 +16,19 @@ namespace EscapeTheBrainRot
         [Header("Yerçekimi Ayarları")]
         public float gravity = 20f;          // Yerçekimi şiddeti
         public float jumpHeight = 2.0f;      // Zıplama yüksekliği (isteğe bağlı)
-        private float verticalVelocity = 0f;  // Dikey hız
+        private float verticalVelocity = 0f;  // Dikey hız (m/s)
         private bool isGrounded;             // Yerde miyiz kontrolü
         
         void Start()
         {
             characterController = GetComponent<CharacterController>();
             
-            // Kamera referansını kontrol et
             if (playerCamera == null)
             {
                 playerCamera = Camera.main;
                 Debug.Log("PlayerMove: Ana kamera otomatik atandı: " + (playerCamera != null ? playerCamera.name : "NULL!"));
             }
             
-            // Yürüme efekti bileşeni yoksa oluştur
             if (walkEffect == null && playerCamera != null)
             {
                 walkEffect = playerCamera.gameObject.GetComponent<WalkBobbingEffect>();
@@ -47,30 +46,42 @@ namespace EscapeTheBrainRot
 
         void Update()
         {
-            // Yerçekimi hesaplamaları
-            ApplyGravity();
+            ApplyGravity(); // Yerçekimini her zaman uygula ve verticalVelocity'yi güncelle
             
-            // Karakterin hareket edip etmediğini kontrol et
+            if (!canMove) 
+            {
+                // Hareket kısıtlıysa, sadece dikey hareketi (yerçekimi tarafından yönetilen) uygula
+                characterController.Move(new Vector3(0f, verticalVelocity * Time.deltaTime, 0f));
+                return;
+            }
+            
             float horizontalInput = joystick.Horizontal;
             float verticalInput = joystick.Vertical;
-            bool isMoving = (Mathf.Abs(horizontalInput) > 0.05f || Mathf.Abs(verticalInput) > 0.05f);
             
-            // Hareket vektörünü hesapla
-            Vector3 moveDirection = transform.right * horizontalInput + transform.forward * verticalInput;
+            // Yatay hareket yönünü belirle
+            Vector3 horizontalDir = transform.right * horizontalInput + transform.forward * verticalInput;
             
-            // Dikey hareketi ekle (yerçekimi veya zıplama)
-            moveDirection.y = verticalVelocity;
+            // Yatay hareketi hız ile ölçekle (bu bir hız vektörü m/s olur)
+            Vector3 horizontalVelocity = horizontalDir * SpeedMove;
             
-            // Karakteri hareket ettir
-            characterController.Move(moveDirection * SpeedMove * Time.deltaTime);
+            // Son hareket vektörünü oluştur (X ve Z yatay hızdan, Y dikey hızdan)
+            // verticalVelocity zaten bir hız (m/s) olduğu için doğrudan kullanılır.
+            Vector3 finalVelocity = new Vector3(horizontalVelocity.x, verticalVelocity, horizontalVelocity.z);
+            
+            // CharacterController.Move, Time.deltaTime ile çarpılmış bir *yer değiştirme* bekler.
+            // Bu yüzden finalVelocity (hız vektörü) Time.deltaTime ile çarpılır.
+            characterController.Move(finalVelocity * Time.deltaTime);
             
             // Kamera sarsıntısını aktifleştir veya devre dışı bırak
             if (walkEffect != null)
             {
-                if (isMoving && isGrounded) // Sadece yerdeyken sarsıntı olsun
+                // Yürüme efekti için hareket, sadece yatay girdilere göre belirlenmeli
+                bool isHorizontallyMoving = horizontalDir.sqrMagnitude > 0.01f; // Küçük bir eşik değer
+
+                if (isHorizontallyMoving && isGrounded) // Sadece yerdeyken ve yatay hareket ederken sarsıntı olsun
                 {
-                    // Hareket hızına bağlı olarak sarsıntı yoğunluğunu ayarla
-                    float intensity = Mathf.Clamp01(moveDirection.magnitude) * 0.5f;
+                    // Sarsıntı yoğunluğunu yatay hareketin büyüklüğüne göre ayarla
+                    float intensity = Mathf.Clamp01(horizontalDir.magnitude * SpeedMove / 5f); // SpeedMove'a göre normalleştirilmiş bir yoğunluk (Örn: max SpeedMove 5 ise)
                     walkEffect.SetShakeActive(true, intensity);
                 }
                 else
@@ -78,38 +89,43 @@ namespace EscapeTheBrainRot
                     walkEffect.SetShakeActive(false, 0);
                 }
             }
-            else if (isMoving && Time.frameCount % 300 == 0)
+            else if ((Mathf.Abs(horizontalInput) > 0.05f || Mathf.Abs(verticalInput) > 0.05f) && Time.frameCount % 300 == 0)
             {
-                // WalkBobbingEffect bileşeni hala yoksa hata mesajı
                 Debug.LogError("HATA: WalkBobbingEffect bileşeni bulunamadı!");
             }
         }
         
         void ApplyGravity()
         {
-            // Yerde miyiz kontrolü
             isGrounded = characterController.isGrounded;
             
             if (isGrounded && verticalVelocity < 0)
             {
-                // Yerdeyken küçük bir değer uygula (tam 0 olursa isGrounded bazen sorun çıkarabilir)
-                verticalVelocity = -2f;
+                verticalVelocity = -2f; // Yerdeyken sabit, hafif bir aşağı doğru kuvvet
             }
             else
             {
-                // Yerçekimini uygula (hızı aşağı doğru artır)
-                verticalVelocity -= gravity * Time.deltaTime;
+                verticalVelocity -= gravity * Time.deltaTime; // Yerçekimini uygula
             }
-            
-            // İsteğe bağlı: Zıplama kodunu burada ekleyebilirsiniz
-            // if (isGrounded && Input.GetButtonDown("Jump")) {
-            //     verticalVelocity = Mathf.Sqrt(jumpHeight * 2f * gravity);
-            // }
         }
 
         public bool IsGrounded()
         {
             return characterController.isGrounded;
+        }
+
+        /// <summary>
+        /// Oyuncu hareketini aktif veya deaktif eder.
+        /// </summary>
+        /// <param name="isActive">Hareket aktif mi?</param>
+        public void SetMovementActive(bool isActive)
+        {
+            canMove = isActive;
+            if (!isActive && walkEffect != null)
+            {
+                walkEffect.SetShakeActive(false, 0); 
+            }
+            Debug.Log("[PlayerMove] Hareket durumu ayarlandı: " + (isActive ? "Aktif" : "Deaktif"));
         }
     }
 }
