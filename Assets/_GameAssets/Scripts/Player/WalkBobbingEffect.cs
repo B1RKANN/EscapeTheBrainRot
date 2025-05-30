@@ -6,15 +6,15 @@ namespace EscapeTheBrainRot
     {
         [Header("Yürüme Sarsıntı Ayarları")]
         [Range(0.5f, 5.0f)]
-        public float stepFrequency = 2.5f;       // Adım atma sıklığı
+        public float stepFrequency = 2.0f;       // Adım atma sıklığı (Örn: 2.5 -> 2.0)
         [Range(0.01f, 0.15f)]
-        public float verticalAmount = 0.08f;     // Yukarı-aşağı hareket miktarı (artırıldı)
+        public float verticalAmount = 0.03f;     // Yukarı-aşağı hareket miktarı (Örn: 0.08 -> 0.03)
         [Range(0.01f, 0.15f)]
-        public float lateralAmount = 0.04f;      // Yanlara hareket miktarı (artırıldı)
+        public float lateralAmount = 0.02f;      // Yanlara hareket miktarı (Örn: 0.04 -> 0.02)
         [Range(0.5f, 5.0f)]
-        public float tiltAmount = 2.8f;          // Eğilme miktarı (derece) (artırıldı)
+        public float tiltAmount = 1.0f;          // Eğilme miktarı (derece) (Örn: 2.8 -> 1.0)
         [Range(5f, 20f)]
-        public float smoothness = 10f;           // Yumuşatma faktörü
+        public float smoothness = 15f;           // Yumuşatma faktörü (Örn: 10f -> 15f, daha yumuşak)
         
         private Vector3 originalPosition;
         private Quaternion originalRotation;
@@ -106,7 +106,7 @@ namespace EscapeTheBrainRot
             transform.localRotation = Quaternion.RotateTowards(
                 transform.localRotation,
                 targetRotation,
-                Time.deltaTime * smoothness * 10f
+                Time.deltaTime * smoothness * 1.0f // 10f yerine 1.0f olarak değiştirildi
             );
         }
         

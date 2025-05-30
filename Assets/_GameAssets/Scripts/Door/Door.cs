@@ -13,6 +13,8 @@ public class Door : MonoBehaviour
     
     // Animatör için parametre isimleri
     private const string DOOR_OPEN = "IsOpen";
+    private Collider _doorCollider;
+    private Collider[] _playerColliders;
     
     private void Awake()
     {
@@ -51,6 +53,32 @@ public class Door : MonoBehaviour
                 Debug.Log($"Door: Animator bulundu - Controller: {(animator.runtimeAnimatorController != null ? animator.runtimeAnimatorController.name : "YOK!")}");
             }
         }
+
+        // Kapının kendi collider'ını al
+        _doorCollider = GetComponent<Collider>();
+        if (_doorCollider == null)
+        {
+            Debug.LogError("Door: Kapı için Collider bulunamadı! Kapı objesine bir Collider ekleyin.", this);
+        }
+
+        // Oyuncu collider'ını bul ve sakla
+        GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
+        if (playerObject != null)
+        {
+            _playerColliders = playerObject.GetComponentsInChildren<Collider>();
+            if (_playerColliders == null || _playerColliders.Length == 0)
+            {
+                Debug.LogError("Door: 'Player' tag'ine sahip objede veya alt objelerinde Collider bulunamadı!", playerObject);
+            }
+            else
+            {
+                if(debugMode) Debug.Log($"Door: Oyuncuya ait {_playerColliders.Length} adet collider bulundu.");
+            }
+        }
+        else
+        {
+            Debug.LogWarning("Door: 'Player' tag'ine sahip obje bulunamadı. Çarpışma engelleme çalışmayabilir.");
+        }
     }
     
     private void Start()
@@ -70,6 +98,7 @@ public class Door : MonoBehaviour
         {
             if (debugMode) Debug.Log($"Door: {gameObject.name} kapısı açılıyor (SADECE ANİMASYON).");
             animator.SetBool(DOOR_OPEN, true);
+            StartCoroutine(ManageCollisionDuringAnimation(true));
         }
         else if (debugMode)
         {
@@ -90,6 +119,7 @@ public class Door : MonoBehaviour
         {
             if (debugMode) Debug.Log($"Door: {gameObject.name} kapısı kapanıyor (SADECE ANİMASYON).");
             animator.SetBool(DOOR_OPEN, false);
+            StartCoroutine(ManageCollisionDuringAnimation(false));
         }
     }
     
@@ -102,6 +132,32 @@ public class Door : MonoBehaviour
         else
         {
             OpenDoor();
+        }
+    }
+    
+    private System.Collections.IEnumerator ManageCollisionDuringAnimation(bool opening)
+    {
+        if (_playerColliders != null && _playerColliders.Length > 0 && _doorCollider != null)
+        {
+            foreach (Collider playerCol in _playerColliders)
+            {
+                if (playerCol != null) Physics.IgnoreCollision(playerCol, _doorCollider, true);
+            }
+            if (debugMode) Debug.Log($"Door: Oyuncu ve {gameObject.name} çarpışması TÜM oyuncu colliderları için devre dışı bırakıldı.");
+        }
+
+        // Animasyon süresi kadar bekle
+        // Eğer animasyon süresi çok kısa veya sıfırsa, en azından bir frame beklemesini sağlayabiliriz.
+        float waitTime = openAnimationDuration > 0 ? openAnimationDuration : Time.deltaTime;
+        yield return new WaitForSeconds(waitTime);
+
+        if (_playerColliders != null && _playerColliders.Length > 0 && _doorCollider != null)
+        {
+            foreach (Collider playerCol in _playerColliders)
+            {
+                if (playerCol != null) Physics.IgnoreCollision(playerCol, _doorCollider, false);
+            }
+            if (debugMode) Debug.Log($"Door: Oyuncu ve {gameObject.name} çarpışması TÜM oyuncu colliderları için tekrar etkinleştirildi.");
         }
     }
     

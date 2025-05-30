@@ -6,6 +6,7 @@ TagManager:
   tags:
   - InteractableDoor
   - BabySahur
+  - Mud
   layers:
   - Default
   - TransparentFX
@@ -14,11 +15,11 @@ TagManager:
   - Water
   - UI
   - deneme
-  - 
+  - PP
   - Player
   - Door
   - BabySahur
-  - 
+  - Wall
   - 
   - 
   - 
