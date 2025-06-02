@@ -8,6 +8,7 @@ namespace EscapeTheBrainRot
         public float SpeedMove = 5f;
         private CharacterController characterController;
         private bool canMove = true; // Hareketi kontrol etmek için bayrak
+        private float currentSpeedMultiplier = 1.0f; // YENİ: Hız çarpanı
         
         [Header("Yürüme Sarsıntı Ayarları")]
         public WalkBobbingEffect walkEffect;
@@ -62,7 +63,7 @@ namespace EscapeTheBrainRot
             Vector3 horizontalDir = transform.right * horizontalInput + transform.forward * verticalInput;
             
             // Yatay hareketi hız ile ölçekle (bu bir hız vektörü m/s olur)
-            Vector3 horizontalVelocity = horizontalDir * SpeedMove;
+            Vector3 horizontalVelocity = horizontalDir * (SpeedMove * currentSpeedMultiplier);
             
             // Son hareket vektörünü oluştur (X ve Z yatay hızdan, Y dikey hızdan)
             // verticalVelocity zaten bir hız (m/s) olduğu için doğrudan kullanılır.
@@ -126,6 +127,13 @@ namespace EscapeTheBrainRot
                 walkEffect.SetShakeActive(false, 0); 
             }
             Debug.Log("[PlayerMove] Hareket durumu ayarlandı: " + (isActive ? "Aktif" : "Deaktif"));
+        }
+
+        // YENİ METOT: Hız Çarpanını Ayarlamak İçin
+        public void SetSpeedMultiplier(float multiplier)
+        {
+            currentSpeedMultiplier = Mathf.Clamp(multiplier, 0.1f, 1.0f); // Çarpanı 0.1 ile 1.0 arasında sınırla
+            Debug.Log($"[PlayerMove] Hız çarpanı {currentSpeedMultiplier} olarak ayarlandı.");
         }
     }
 }

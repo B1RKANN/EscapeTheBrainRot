@@ -1,16 +1,9 @@
 using UnityEngine;
 using UnityEngine.AI;
 using UnityEngine.UI;
-using EscapeTheBrainRot; // PlayerMove namespace'i için eklendi
-// System.Collections Coroutine için gerekli değil, kaldırılabilir.
-
-// YENİ: SpindHidingSpot namespace'i için
+using EscapeTheBrainRot;
 using EscapeTheBrainRot; 
 
-/// <summary>
-/// Sahur karakterinin yapay zeka davranışlarını yönetir.
-/// Belirlenen devriye noktaları arasında rastgele gezer ve belirli aralıklarla boşta durur.
-/// </summary>
 [RequireComponent(typeof(NavMeshAgent), typeof(Animator))]
 public class SahurAIController : MonoBehaviour
 {
@@ -70,34 +63,6 @@ public class SahurAIController : MonoBehaviour
     [Tooltip("Ajanın takıldığını varsaymadan önce ne kadar süre hareketsiz kalabileceği (saniye).")]
     [SerializeField] private float maxStuckTime = 0.2f; // GEÇİCİ: Agresif test için çok düşük bir değere ayarlandı (0.2f)
 
-    [Header("Jumpscare Settings")]
-    [Tooltip("Jumpscare sırasında aktifleşecek ana GameObject.")]
-    [SerializeField] private GameObject jumpscareObject;
-    [Tooltip("JumpscareObject'in ebeveyni olan ve anime edilecek BlackBackground Image bileşeni.")]
-    [SerializeField] private Image blackBackgroundImage; 
-    [Tooltip("BlackBackgroundImage'ın ebeveyni olan ve anime edilecek Sahur Image bileşeni.")]
-    [SerializeField] private Image sahurBackgroundImage; 
-    [Tooltip("Jumpscare animasyonunun toplam süresi (saniye).")]
-    [SerializeField] private float jumpscareAnimationDuration = 0.75f;
-    [Tooltip("BlackBackground için hedef alfa değeri.")]
-    [SerializeField, Range(0f, 1f)] private float blackBackgroundTargetAlpha = 0.8f;
-    [Tooltip("SahurImage için hedef alfa değeri.")]
-    [SerializeField, Range(0f, 1f)] private float sahurImageTargetAlpha = 0.6f;
-    [Tooltip("Animasyon sırasında SahurImage için uygulanacak maksimum ölçek.")]
-    [SerializeField] private float sahurImageMaxScale = 1.1f;
-    [Tooltip("Jumpscare animasyonunun tepe noktasında ne kadar süre ekranda kalacağı (saniye).")]
-    [SerializeField] private float jumpscareHoldDuration = 1.0f;
-    [Tooltip("Jumpscare sonrası UI elemanlarının eski haline dönme süresi (saniye).")]
-    [SerializeField] private float jumpscareFadeOutDuration = 0.5f;
-
-    [Header("Jumpscare Sound Settings")]
-    [Tooltip("Oyuncu yakalandığında çalınacak ses klibi.")]
-    [SerializeField] private AudioClip jumpscareAudioClip;
-    [Tooltip("Jumpscare sesini çalmak için kullanılacak AudioSource. Genellikle Sahur objesinin üzerinde veya bir alt objesinde bulunur.")]
-    [SerializeField] private AudioSource jumpscareAudioSource;
-    [Tooltip("Jumpscare sesi için uygulanacak ek ses çarpanı (1 varsayılan, >1 daha yüksek ses).")]
-    [SerializeField, Range(0.1f, 5f)] private float jumpscareVolumeMultiplier = 1.0f;
-
     [Header("Physical Attack Settings")]
     [Tooltip("Fiziksel saldırı sekansının gerçekleşme olasılığı (0 ile 1 arasında. 0: Asla, 1: Her zaman).")]
     [SerializeField, Range(0f, 1f)] private float attackSequenceProbability = 0.4f; 
@@ -143,6 +108,14 @@ public class SahurAIController : MonoBehaviour
     [SerializeField] private float loseSightChaseDistance = 25f;
     [Tooltip("Sahur, görerek başlattığı bir kovalamayı kaybettikten sonra ne kadar süre (saniye) boyunca tekrar görerek kovalamaya başlamaz.")]
     [SerializeField] private float chaseAfterLosingSightCooldown = 10f;
+
+    [Header("Mud Chase Settings")] // YENİ BAŞLIK: Çamur Kovalaması Ayarları
+    [Tooltip("Oyuncu çamura girdiğinde Sahur'un kullanacağı kovalama hızı.")]
+    [SerializeField] private float mudChaseSpeed = 3.5f;
+    [Tooltip("Çamur kovalamasında, oyuncu bu mesafeden uzağa giderse Sahur kovalamayı bırakır.")]
+    [SerializeField] private float mudChaseLoseDistance = 30f;
+    [Tooltip("Sahur, çamur kovalamasını kaybettikten sonra ne kadar süre (saniye) boyunca tekrar çamurla tetiklenen bir kovalamaya başlamaz.")]
+    [SerializeField] private float mudChaseCooldown = 15f;
 
     [Header("New Catch Sequence Settings")]
     [Tooltip("Sahur'un child objesi olan ve oyuncunun saldırı sırasında çekileceği nokta.")]
@@ -233,6 +206,19 @@ public class SahurAIController : MonoBehaviour
     private bool isChasingDueToVision = false;
     private float currentChaseCooldownTimer = 0f;
 
+    // YENİ Değişkenler (Çamur Kovalaması için)
+    private bool isChasingDueToMud = false;
+    private float currentMudChaseCooldownTimer = 0f;
+
+    // --- Jumpscare Settings başlığı ve ilgili alanlar (ses hariç) KORUNUYOR
+    [Header("Jumpscare Sound Settings")] // Bu başlık ve altındaki ses değişkenleri KORUNUYOR
+    [Tooltip("Oyuncu yakalandığında çalınacak ses klibi.")]
+    [SerializeField] private AudioClip jumpscareAudioClip;
+    [Tooltip("Jumpscare sesini çalmak için kullanılacak AudioSource. Genellikle Sahur objesinin üzerinde veya bir alt objesinde bulunur.")]
+    [SerializeField] private AudioSource jumpscareAudioSource;
+    [Tooltip("Jumpscare sesi için uygulanacak ek ses çarpanı (1 varsayılan, >1 daha yüksek ses).")]
+    [SerializeField, Range(0.1f, 5f)] private float jumpscareVolumeMultiplier = 1.0f;
+
 
     // --- Unity Mesajları ---
 
@@ -240,12 +226,18 @@ public class SahurAIController : MonoBehaviour
     {
         BurnMechanismController.OnBabyTungBurned += HandleBabyBurned;
         SpindHidingSpot.OnPlayerHidingSpotStateChanged += HandlePlayerHidingSpotStateChanged; // YENİ
+        // YENİ: PlayerMudController olaylarına abone ol (Bu betiğin var olduğunu varsayıyoruz)
+        PlayerMudController.OnPlayerEnteredMud += HandlePlayerEnteredMud;
+        PlayerMudController.OnPlayerExitedMud += HandlePlayerExitedMud;
     }
 
     private void OnDisable()
     {
         BurnMechanismController.OnBabyTungBurned -= HandleBabyBurned;
         SpindHidingSpot.OnPlayerHidingSpotStateChanged -= HandlePlayerHidingSpotStateChanged; // YENİ
+        // YENİ: PlayerMudController olaylarından aboneliği kaldır
+        PlayerMudController.OnPlayerEnteredMud -= HandlePlayerEnteredMud;
+        PlayerMudController.OnPlayerExitedMud -= HandlePlayerExitedMud;
     }
 
     private void Awake()
@@ -387,6 +379,12 @@ public class SahurAIController : MonoBehaviour
         {
             currentChaseCooldownTimer -= Time.deltaTime;
         }
+
+        // YENİ: Çamur kovalaması cooldown'unu işle
+        if (currentMudChaseCooldownTimer > 0f)
+        {
+            currentMudChaseCooldownTimer -= Time.deltaTime;
+        }
     }
 
     void LateUpdate()
@@ -459,6 +457,7 @@ public class SahurAIController : MonoBehaviour
         {
             Debug.Log("[SahurAIController] Oyuncu Idle durumundayken GÖRÜLDÜ! Kovalamaya geçiliyor.", this);
             isChasingDueToVision = true;
+            isChasingDueToMud = false; // Diğer kovalama türünü sıfırla
             SwitchToState(AIState.ChasingPlayer);
         }
     }
@@ -488,6 +487,7 @@ public class SahurAIController : MonoBehaviour
         {
             Debug.Log("[SahurAIController] Oyuncu devriye durumundayken GÖRÜLDÜ! Kovalamaya geçiliyor.", this);
             isChasingDueToVision = true;
+            isChasingDueToMud = false; // Diğer kovalama türünü sıfırla
             SwitchToState(AIState.ChasingPlayer);
             return; // Kovalamaya geçtiği için diğer devriye mantığını çalıştırma
         }
@@ -580,7 +580,22 @@ public class SahurAIController : MonoBehaviour
         // Bu satırı kaldırdım çünkü `isChasingDueToVision` durumu başlatan yerde ayarlanıyor.
         // if (!isChasingDueToVision) isChasingDueToVision = false; 
 
-        agent.speed = chaseSpeed;
+        agent.speed = chaseSpeed; // Varsayılan kovalama hızı
+        if (isChasingDueToMud)
+        {
+            agent.speed = mudChaseSpeed; // Çamur kovalaması ise hızı ayarla
+            Debug.Log($"[SahurAIController CHASE_ENTER] Çamur Kovalaması! Hız: {agent.speed}");
+        }
+        else if (isChasingDueToVision)
+        {
+            Debug.Log($"[SahurAIController CHASE_ENTER] Görerek Kovalama! Hız: {agent.speed}");
+        }
+        else
+        {
+            // Bebek yakma veya diğer durumlar için varsayılan chaseSpeed kullanılır.
+            Debug.Log($"[SahurAIController CHASE_ENTER] Genel Kovalama (Bebek vb.)! Hız: {agent.speed}");
+        }
+        
         agent.angularSpeed = agentAngularSpeed; 
         agent.acceleration = agentAcceleration; 
         agent.isStopped = false; 
@@ -643,6 +658,22 @@ public class SahurAIController : MonoBehaviour
                     return;
                 }
                 // Hala görerek kovalıyorsa, oyuncu hedef olmalı
+                agent.stoppingDistance = playerCatchDistance; 
+            }
+            // YENİ: Çamurla başlatılan kovalamada mesafeyi kontrol et
+            else if (isChasingDueToMud)
+            {
+                float distanceToPlayer = Vector3.Distance(transform.position, playerTransform.position);
+                if (distanceToPlayer > mudChaseLoseDistance)
+                {
+                    Debug.Log($"[SahurAIController] Oyuncu ({playerTransform.name}) çamur kovalaması için çok uzaklaştı ({distanceToPlayer:F1}m > {mudChaseLoseDistance}m). Kovalamayı bırakıp devriyeye dönülüyor.", this);
+                    isChasingDueToMud = false;
+                    currentMudChaseCooldownTimer = mudChaseCooldown;
+                    SwitchToState(AIState.Patrolling);
+                    return;
+                }
+                // Çamur kovalamasında yakalama mesafesi normal playerCatchDistance olabilir.
+                // Eğer farklı bir yakalama mesafesi isteniyorsa burası ayarlanabilir.
                 agent.stoppingDistance = playerCatchDistance; 
             }
             // else -> Bebek yakma ile kovalama, mesafe kontrolü yok, sadece oyuncuyu yakalamaya çalışır.
@@ -1259,28 +1290,8 @@ public class SahurAIController : MonoBehaviour
         Debug.Log($"[SahurAIController] {(targetImage == bloodEffectImage ? "Kan Efekti" : "Ekran Flaş")} Animasyonu Tamamlandı.", this);
     }
 
-    private System.Collections.IEnumerator PlayJumpscareAnimationCoroutine()
-    {
-        Debug.LogWarning("[SahurAIController] PlayJumpscareAnimationCoroutine çağrıldı ancak artık kullanılmıyor olmalı!", this);
-        if (jumpscareObject != null) jumpscareObject.SetActive(false); 
-        yield break; 
-    }
 
-    private System.Collections.IEnumerator TriggerScreenFlashAfterDelay(float delay)
-    {
-        if (delay > 0)
-        {
-            yield return new WaitForSeconds(delay);
-        }
-        if (screenFlashImage != null) 
-        {
-            StartCoroutine(PlayScreenFlashCoroutine());
-        }
-        else
-        {
-            Debug.LogWarning("[SahurAIController] Gecikmeli ekran flaşı tetiklenemedi, ScreenFlashImage null.", this);
-        }
-    }
+
 
     private void HandleBabyBurned()
     {
@@ -1677,5 +1688,54 @@ public class SahurAIController : MonoBehaviour
         
         // Debug.Log("[SahurAIController] CanSeePlayer: Oyuncu GÖRÜLDÜ!");
         return true; // Oyuncu görüş alanında ve arada engel yok
+    }
+
+    // YENİ METOTLAR (PlayerMudController Olayları İçin)
+    // Bu metotların çağrılabilmesi için PlayerMudController adında bir betik ve 
+    // OnPlayerEnteredMud, OnPlayerExitedMud static event'lerinin olması gerekir.
+    // Şimdilik bu metotları yorum satırı olarak ekliyorum. PlayerMudController.cs oluşturulduğunda aktif edilebilirler.
+    
+    private void HandlePlayerEnteredMud()
+    {
+        if (playerTransform == null)
+        {
+            Debug.LogWarning("[SahurAIController] HandlePlayerEnteredMud: PlayerTransform null. Oyuncu bulunmaya çalışılıyor.", this);
+            GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
+            if (playerObject != null) playerTransform = playerObject.transform;
+            else
+            {
+                Debug.LogError("[SahurAIController] HandlePlayerEnteredMud: PlayerTransform bulunamadı. Çamur kovalaması başlatılamıyor.", this);
+                return;
+            }
+        }
+
+        if (currentState == AIState.ActionInProgress || isPlayerHiding)
+        {
+            Debug.Log("[SahurAIController] HandlePlayerEnteredMud: Sahur meşgul veya oyuncu saklanıyor. Çamur kovalaması başlatılmayacak.", this);
+            return;
+        }
+
+        if (currentMudChaseCooldownTimer > 0f)
+        {
+            Debug.Log($"[SahurAIController] HandlePlayerEnteredMud: Çamur kovalaması cooldown aktif ({currentMudChaseCooldownTimer:F1}s). Kovalama başlatılmayacak.", this);
+            return;
+        }
+        
+        Debug.Log("[SahurAIController] Oyuncu çamura girdi! Kovalamaya geçiliyor.", this);
+        isChasingDueToMud = true;
+        isChasingDueToVision = false; // Diğer kovalama türlerini sıfırla
+        sahurKnowsPlayerIsHiding = false; // Oyuncu saklanıyorsa bile çamur bunu geçersiz kılar
+        SwitchToState(AIState.ChasingPlayer);
+    }
+
+    private void HandlePlayerExitedMud()
+    {
+        // Oyuncu çamurdan çıktığında özel bir davranış gerekmiyorsa bu metot boş kalabilir
+        // veya Sahur'un davranışını değiştirmek için kullanılabilir.
+        // Örneğin, eğer Sahur çamur yüzünden kovalıyorsa ve oyuncu çamurdan çıktıysa,
+        // belki bir süre daha kovalamaya devam eder veya hemen normale döner.
+        // Şimdilik, çamurdan çıkış direkt bir aksiyonu tetiklemiyor,
+        // kovalama mesafesi UpdateChasingPlayerState'te kontrol ediliyor.
+        Debug.Log("[SahurAIController] Oyuncu çamurdan çıktı bilgisi alındı.", this);
     }
 }
