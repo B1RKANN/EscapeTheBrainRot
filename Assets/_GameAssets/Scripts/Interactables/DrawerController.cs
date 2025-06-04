@@ -10,21 +10,15 @@ public class DrawerController : MonoBehaviour
     [Tooltip("Her bir kompartıman Animator'ünde kullanılacak boolean parametresinin adı (örn: IsOpen)")]
     [SerializeField] private string openParameterName = "IsOpen";
 
-    [Header("Anahtar Etkileşimi")] // Yeni başlık
-    [Tooltip("Anahtarın bulunduğu doğru çekmecenin compartmentAnimators dizisindeki indeksi.")]
-    [SerializeField] private int correctCompartmentIndex = 0; // Varsayılan olarak ilk çekmece
+    private int _keyCompartmentIndex = -1; // Eğer bu dolap anahtarı tutuyorsa, anahtarın olduğu çekmecenin indeksi
+    private GameObject _takeKeyButtonInstance;
+    private GameObject _keyObjectInSceneInstance;
+    private GameObject _playerKeyObjectInstance;
 
-    [Tooltip("Oyuncunun anahtarı alabileceği 'Take Key' UI Butonu.")]
-    [SerializeField] private GameObject takeKeyButton;
+    private bool _isKeyTaken = false; 
+    private bool _isPlayerInTrigger = false; 
 
-    [Tooltip("Sahnedeki alınabilir anahtar objesi.")]
-    [SerializeField] private GameObject keyObjectInScene;
-
-    [Tooltip("Oyuncunun kamerasının altında/parent'ında bulunan ve anahtar alındığında aktif edilecek olan anahtar objesi.")]
-    [SerializeField] private GameObject playerKeyObject;
-
-    private bool isKeyTaken = false; // Anahtarın alınıp alınmadığını takip eder
-    private bool isPlayerInTrigger = false; // Oyuncunun trigger alanında olup olmadığını takip eder
+    public bool HasKey { get; private set; } = false;
 
     [Header("Yakınlık Etkileşimi")]
     [Tooltip("Oyuncu yaklaştığında görünecek olan World Space Canvas'lar (her çekmece gözü için bir tane). Trigger girildiğinde hepsi birden aktifleşir.")]
@@ -91,37 +85,53 @@ public class DrawerController : MonoBehaviour
             }
         }
 
-        // Anahtar ile ilgili başlangıç ayarları
-        if (takeKeyButton != null)
-        {
-            takeKeyButton.SetActive(false); // Butonu başlangıçta pasif yap
-        }
-        else
-        {
-            Debug.LogError("DrawerController: 'Take Key' butonu (takeKeyButton) atanmamış!", this);
-        }
-
-        if (keyObjectInScene == null)
-        {
-            Debug.LogWarning("DrawerController: Sahnedeki anahtar objesi (keyObjectInScene) atanmamış. Anahtar mekaniği düzgün çalışmayabilir.", this);
-        }
-
-        if (playerKeyObject != null)
-        {
-            playerKeyObject.SetActive(false); // Oyuncudaki anahtarı başlangıçta pasif yap
-        }
-        else
-        {
-            Debug.LogError("DrawerController: Oyuncunun anahtar objesi (playerKeyObject) atanmamış!", this);
-        }
-
-        if (correctCompartmentIndex < 0 || compartmentAnimators == null || correctCompartmentIndex >= compartmentAnimators.Length)
-        {
-            Debug.LogError($"DrawerController: Geçersiz 'correctCompartmentIndex' ({correctCompartmentIndex}). Lütfen 0 ile {compartmentAnimators?.Length - 1} arasında bir değer atayın.", this);
-            // Oyunu durdurmak veya bir hata durumu yönetimi eklemek daha iyi olabilir.
-        }
+        // Butonun başlangıç durumu KeyPlacementManager ve UpdateTakeKeyButtonVisibility tarafından yönetilecek.
     }
 
+    public int GetCompartmentCount()
+    {
+        return compartmentAnimators != null ? compartmentAnimators.Length : 0;
+    }
+
+    /// <summary>
+    /// Belirtilen indeksteki kompartımanın (çekmecenin) Transformunu döndürür.
+    /// </summary>
+    public Transform GetCompartmentTransform(int compartmentIndex)
+    {
+        if (compartmentAnimators != null && compartmentIndex >= 0 && compartmentIndex < compartmentAnimators.Length && compartmentAnimators[compartmentIndex] != null)
+        {
+            return compartmentAnimators[compartmentIndex].transform;
+        }
+        Debug.LogWarning($"GetCompartmentTransform: Geçersiz indeks ({compartmentIndex}) veya atanmamış Animator.", this);
+        return null;
+    }
+
+    public void PrepareForNewKeyState(bool isHolder, int keyCompartmentIdx = -1, GameObject keyInSceneRef = null, GameObject takeKeyBtnRef = null, GameObject playerKeyObjRef = null)
+    {
+        HasKey = isHolder;
+        _isKeyTaken = false; // Her yeni durumda anahtar alınmamış sayılır.
+
+        if (isHolder)
+        {
+            _keyCompartmentIndex = keyCompartmentIdx;
+            _keyObjectInSceneInstance = keyInSceneRef;
+            _takeKeyButtonInstance = takeKeyBtnRef;
+            _playerKeyObjectInstance = playerKeyObjRef;
+
+            // _keyObjectInSceneInstance'ın başlangıçta aktif olması KeyPlacementManager tarafından sağlanacak.
+            // _takeKeyButtonInstance'ın başlangıçta pasif olması KeyPlacementManager tarafından sağlanacak.
+        }
+        else
+        {
+            _keyCompartmentIndex = -1;
+            // Referansları null yapmak isteğe bağlı, HasKey kontrolü yeterli olabilir.
+            // _keyObjectInSceneInstance = null;
+            // _takeKeyButtonInstance = null;
+            // _playerKeyObjectInstance = null;
+        }
+        UpdateTakeKeyButtonVisibility(); // Durum değiştiğinde buton görünürlüğünü hemen güncelle.
+    }
+    
     /// <summary>
     /// Belirtilen indeksteki kompartımanın açık/kapalı durumunu değiştirir.
     /// </summary>
@@ -130,7 +140,7 @@ public class DrawerController : MonoBehaviour
     {
         if (compartmentAnimators == null || compartmentAnimators.Length == 0 || compartmentAnimators[compartmentIndex] == null)
         {
-            Debug.LogError("DrawerController: Toggle için compartmentAnimators uygun şekilde ayarlanmamış.", this);
+            Debug.LogError($"[DrawerController] Toggle için compartmentAnimators uygun şekilde ayarlanmamış: {gameObject.name}", this);
             return;
         }
 
@@ -159,53 +169,88 @@ public class DrawerController : MonoBehaviour
             return;
         }
         
-        bool currentState = targetAnimator.GetBool(openParameterName);
-        targetAnimator.SetBool(openParameterName, !currentState);
+        bool previousState = targetAnimator.GetBool(openParameterName);
+        targetAnimator.SetBool(openParameterName, !previousState);
+        bool newState = targetAnimator.GetBool(openParameterName); // SetBool sonrası hemen oku
+        Debug.Log($"[DrawerController] ToggleCompartmentState on {gameObject.name} for compartment {compartmentIndex} ({targetAnimator.name}): Parameter '{openParameterName}' was {previousState}, set to {!previousState}. Current GetBool after set: {newState}", this);
 
-        // Anahtar butonu görünürlüğünü güncelle
         UpdateTakeKeyButtonVisibility();
 
         if (Debug.isDebugBuild)
         {
-            Debug.Log($"Kompartıman {compartmentIndex + 1} ({targetAnimator.name} Animator'ü, parametre: {openParameterName}) durumu değiştirildi: {!currentState}");
-            if (takeKeyButton != null && takeKeyButton.activeSelf)
+            Debug.Log($"Kompartıman {compartmentIndex + 1} ({targetAnimator.name} Animator'ü, parametre: {openParameterName}) durumu değiştirildi: {!previousState}");
+            // Debug logları HasKey durumuna göre güncellenebilir.
+            if (HasKey && _takeKeyButtonInstance != null && _takeKeyButtonInstance.activeSelf)
             {
-                Debug.Log($"'Take Key' butonu şimdi aktif. Açılan çekmece: {compartmentIndex}, Doğru çekmece: {correctCompartmentIndex}");
+                Debug.Log($"'Take Key' butonu şimdi aktif. Açılan çekmece: {compartmentIndex}, Doğru çekmece: {_keyCompartmentIndex}");
             }
-            else if (takeKeyButton != null)
+            else if (HasKey && _takeKeyButtonInstance != null)
             {
-                Debug.Log($"'Take Key' butonu şimdi pasif. Açılan çekmece: {compartmentIndex}, Doğru çekmece: {correctCompartmentIndex}, Anahtar alındı mı: {isKeyTaken}");
+                Debug.Log($"'Take Key' butonu şimdi pasif. Açılan çekmece: {compartmentIndex}, Doğru çekmece: {_keyCompartmentIndex}, Anahtar alındı mı: {_isKeyTaken}, Oyuncu triggerda mı: {_isPlayerInTrigger}");
             }
         }
     }
 
     private void UpdateTakeKeyButtonVisibility()
     {
-        if (takeKeyButton == null)
+        if (_takeKeyButtonInstance == null)
         {
-            return; // Buton atanmamışsa bir şey yapma
-        }
-
-        if (isKeyTaken) // Anahtar zaten alınmışsa butonu her zaman pasif yap
-        {
-            takeKeyButton.SetActive(false);
+            // Bu durum KeyPlacementManager'da takeKeyButton atanmamışsa veya bir hata oluşmuşsa meydana gelebilir.
+            Debug.LogWarning($"[DrawerController] UpdateTakeKeyButtonVisibility: TakeKeyButton referansı (_takeKeyButtonInstance) {gameObject.name} için null. Buton görünürlüğü güncellenemiyor.", this);
             return;
         }
 
-        bool correctDrawerIsOpen = false;
-        if (correctCompartmentIndex >= 0 && correctCompartmentIndex < compartmentAnimators.Length && compartmentAnimators[correctCompartmentIndex] != null)
+        // Temel durumları loglayalım (oyuncunun trigger'da olup olmadığı hariç, onu önce kontrol edeceğiz)
+        // Debug.Log($"[DrawerController] UpdateTakeKeyButtonVisibility çağrıldı: {gameObject.name} | HasKey: {HasKey} | _isKeyTaken: {_isKeyTaken} | _keyCompartmentIndex: {_keyCompartmentIndex}", this);
+
+
+        // 1. Oyuncu etkileşim alanında değilse, diğer koşullara bakmaksızın butonu pasif yap.
+        if (!_isPlayerInTrigger)
         {
-            correctDrawerIsOpen = compartmentAnimators[correctCompartmentIndex].GetBool(openParameterName);
+            _takeKeyButtonInstance.SetActive(false);
+            Debug.Log($"[DrawerController] Buton ({_takeKeyButtonInstance.name}) {gameObject.name} için PASİF ayarlandı (Sebep: Oyuncu trigger alanında değil: _isPlayerInTrigger = {_isPlayerInTrigger})", _takeKeyButtonInstance);
+            return;
+        }
+
+        // Oyuncu trigger'daysa, diğer koşulları kontrol et.
+        Debug.Log($"[DrawerController] UpdateTakeKeyButtonVisibility çağrıldı (Oyuncu Trigger'da): {gameObject.name} | HasKey: {HasKey} | _isKeyTaken: {_isKeyTaken} | _keyCompartmentIndex: {_keyCompartmentIndex}", this);
+
+        // 2. Bu dolapta anahtar yoksa butonu pasif yap.
+        if (!HasKey) 
+        {
+            _takeKeyButtonInstance.SetActive(false);
+            Debug.Log($"[DrawerController] Buton ({_takeKeyButtonInstance.name}) {gameObject.name} için PASİF ayarlandı (Sebep: HasKey = false)", _takeKeyButtonInstance);
+            return;
+        }
+
+        // 3. Anahtar zaten alınmışsa butonu pasif yap.
+        if (_isKeyTaken) 
+        {
+            _takeKeyButtonInstance.SetActive(false);
+            Debug.Log($"[DrawerController] Buton ({_takeKeyButtonInstance.name}) {gameObject.name} için PASİF ayarlandı (Sebep: _isKeyTaken = true)", _takeKeyButtonInstance);
+            return;
+        }
+
+        // 4. Doğru çekmecenin açık olup olmadığını kontrol et.
+        bool correctDrawerIsOpen = false;
+        if (_keyCompartmentIndex >= 0 && _keyCompartmentIndex < compartmentAnimators.Length && compartmentAnimators[_keyCompartmentIndex] != null)
+        {
+            correctDrawerIsOpen = compartmentAnimators[_keyCompartmentIndex].GetBool(openParameterName);
+            Debug.Log($"[DrawerController] {gameObject.name} | Doğru çekmece kontrolü: İndeks: {_keyCompartmentIndex}, Animator: {compartmentAnimators[_keyCompartmentIndex].name}, '{openParameterName}' parametre değeri: {correctDrawerIsOpen}", this);
         }
         else
         {
-            // Hatalı correctCompartmentIndex durumu Start içinde zaten loglanıyor.
-            // Burada ek bir loglama yapılabilir veya olduğu gibi bırakılabilir.
-            // Debug.LogWarning($"UpdateTakeKeyButtonVisibility: correctCompartmentIndex ({correctCompartmentIndex}) geçersiz veya ilgili animator null.");
+            // Bu durum genellikle _keyCompartmentIndex'in hatalı atanması veya compartmentAnimators dizisinin eksik/hatalı olması durumunda oluşur.
+            Debug.LogWarning($"[DrawerController] {gameObject.name} | _keyCompartmentIndex ({_keyCompartmentIndex}) geçersiz veya ilgili compartmentAnimator null. Doğru çekmecenin açık olup olmadığı kontrol edilemiyor. Buton pasif kalacak.", this);
+            _takeKeyButtonInstance.SetActive(false); // Kontrol edilemiyorsa butonu pasif tutmak güvenlidir.
+            return;
         }
         
-        // Buton sadece doğru çekmece açıksa VE oyuncu trigger içindeyse aktif olmalı
-        takeKeyButton.SetActive(correctDrawerIsOpen && isPlayerInTrigger);
+        // Tüm ön koşullar sağlandı (Oyuncu trigger'da, bu dolapta anahtar var, anahtar alınmamış).
+        // Butonun aktif olup olmayacağı artık sadece doğru çekmecenin açık olup olmadığına bağlı.
+        _takeKeyButtonInstance.SetActive(correctDrawerIsOpen);
+
+        Debug.Log($"[DrawerController] {gameObject.name} | Buton ({_takeKeyButtonInstance.name}) durumu ayarlandı: {correctDrawerIsOpen} (Koşullar: _isPlayerInTrigger: {_isPlayerInTrigger}, HasKey: {HasKey}, !_isKeyTaken: {!_isKeyTaken}, correctDrawerIsOpen: {correctDrawerIsOpen})", _takeKeyButtonInstance);
     }
 
     /// <summary>
@@ -214,51 +259,53 @@ public class DrawerController : MonoBehaviour
     /// </summary>
     public void TakeKey()
     {
-        if (isKeyTaken)
+        if (!HasKey || _isKeyTaken)
         {
-            Debug.LogWarning("Anahtar zaten alınmış.", this);
+            Debug.LogWarning("Anahtar bu çekmecede değil veya zaten alınmış.", this);
             return;
         }
 
-        if (keyObjectInScene != null)
+        if (_keyObjectInSceneInstance != null)
         {
-            keyObjectInScene.SetActive(false);
+            _keyObjectInSceneInstance.SetActive(false);
             Debug.Log("Sahnedeki anahtar objesi deaktif edildi.", this);
         }
         else
         {
-            Debug.LogWarning("Sahnedeki anahtar objesi (keyObjectInScene) atanmamış, kaldırılamadı.", this);
+            Debug.LogWarning("Sahnedeki anahtar objesi (keyObjectInSceneInstance) atanmamış, kaldırılamadı.", this);
         }
 
-        if (playerKeyObject != null)
+        if (_playerKeyObjectInstance != null)
         {
-            playerKeyObject.SetActive(true);
+            _playerKeyObjectInstance.SetActive(true);
             Debug.Log("Oyuncunun anahtar objesi aktif edildi.", this);
         }
         else
         {
-            Debug.LogError("Oyuncunun anahtar objesi (playerKeyObject) atanmamış, aktif edilemedi!", this);
+            Debug.LogError("Oyuncunun anahtar objesi (playerKeyObjectInstance) atanmamış, aktif edilemedi!", this);
         }
 
-        if (takeKeyButton != null)
+        if (_takeKeyButtonInstance != null)
         {
-            takeKeyButton.SetActive(false);
+            _takeKeyButtonInstance.SetActive(false);
         }
 
-        isKeyTaken = true;
-        Debug.Log("Anahtar alındı ve isKeyTaken = true olarak ayarlandı.", this);
-
-        // Anahtar alındıktan sonra, doğru çekmece kapansa bile butonun tekrar aktif olmamasını garantilemek için
-        // UpdateTakeKeyButtonVisibility çağrılabilir veya bu durum isKeyTaken ile zaten yönetiliyor.
-        // Eğer doğru çekmece hala açıksa ve butonun hemen kaybolması isteniyorsa:
-        // UpdateTakeKeyButtonVisibility(); // Bu satır isKeyTaken kontrolü nedeniyle butonu false yapacaktır.
+        _isKeyTaken = true;
+        // HasKey = false; // Anahtar alındıktan sonra bu dolap artık anahtarı tutmuyor.
+                       // Bu satır önemli, böylece başka bir çekmece açıldığında bu dolap tekrar anahtar vermeye çalışmaz.
+                       // Ancak, oyun yeniden başladığında KeyPlacementManager HasKey'i tekrar ayarlayacağı için,
+                       // bu anlık olarak false yapmak şart değil, isKeyTaken yeterli.
+                       // Şimdilik yoruma alıyorum, oyun mantığına göre gerekirse açılabilir.
+        Debug.Log("Anahtar alındı ve _isKeyTaken = true olarak ayarlandı.", this);
     }
 
     void OnTriggerEnter(Collider other)
     {
         if (other.CompareTag("Player"))
         {
-            isPlayerInTrigger = true;
+            _isPlayerInTrigger = true;
+            Debug.Log($"[DrawerController] OnTriggerEnter on {gameObject.name}: Player TAG MATCHED. _isPlayerInTrigger set to TRUE.", this);
+
             if (worldSpaceCanvases != null)
             {
                 foreach (GameObject canvasGO in worldSpaceCanvases)
@@ -270,10 +317,10 @@ public class DrawerController : MonoBehaviour
                 }
                 if (Debug.isDebugBuild)
                 {
-                    Debug.Log("Oyuncu çekmece alanına girdi, tüm Canvas'lar aktif.", this);
+                    Debug.Log($"[DrawerController] Oyuncu {gameObject.name} alanına girdi, tüm Canvas'lar aktif. _isPlayerInTrigger: {_isPlayerInTrigger}", this);
                 }
             }
-            UpdateTakeKeyButtonVisibility(); // Oyuncu girdiğinde buton durumunu güncelle
+            UpdateTakeKeyButtonVisibility(); 
         }
     }
 
@@ -281,7 +328,9 @@ public class DrawerController : MonoBehaviour
     {
         if (other.CompareTag("Player"))
         {
-            isPlayerInTrigger = false;
+            _isPlayerInTrigger = false;
+            Debug.Log($"[DrawerController] OnTriggerExit on {gameObject.name}: Player TAG MATCHED. _isPlayerInTrigger set to FALSE.", this);
+
             if (worldSpaceCanvases != null)
             {
                 foreach (GameObject canvasGO in worldSpaceCanvases)
@@ -293,10 +342,10 @@ public class DrawerController : MonoBehaviour
                 }
                 if (Debug.isDebugBuild)
                 {
-                    Debug.Log("Oyuncu çekmece alanından çıktı, tüm Canvas'lar pasif.", this);
+                    Debug.Log($"[DrawerController] Oyuncu {gameObject.name} alanından çıktı, tüm Canvas'lar pasif. _isPlayerInTrigger: {_isPlayerInTrigger}", this);
                 }
             }
-            UpdateTakeKeyButtonVisibility(); // Oyuncu çıktığında buton durumunu güncelle
+            UpdateTakeKeyButtonVisibility();
         }
     }
 } 
