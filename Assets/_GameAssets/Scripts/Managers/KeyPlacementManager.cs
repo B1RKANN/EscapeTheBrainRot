@@ -69,13 +69,27 @@ public class KeyPlacementManager : MonoBehaviour
             for (int i = 0; i < controller.GetCompartmentCount(); i++)
             {
                 Transform compartmentTransform = controller.GetCompartmentTransform(i);
-                if (compartmentTransform != null && activeKeyObjectInScene.transform.parent == compartmentTransform)
+                
+                // Detaylı loglama eklendi
+                if (compartmentTransform != null && activeKeyObjectInScene != null)
                 {
-                    keyOwningDrawerController = controller;
-                    keyOwningCompartmentIndex = i;
-                    ownerFound = true;
-                    break;
+                    string keyParentName = (activeKeyObjectInScene.transform.parent != null) ? activeKeyObjectInScene.transform.parent.name : "NULL_PARENT";
+                    Debug.Log($"[KeyPlacementManager DEBUG] Kontrol ediliyor: Seçilen Anahtar='{activeKeyObjectInScene.name}', Anahtarın Parent'ı='{keyParentName}'. Karşılaştırılan Kompartıman='{compartmentTransform.name}', Ait Olduğu Çekmece='{controller.gameObject.name}', Kompartıman Index={i}");
+
+                    if (activeKeyObjectInScene.transform.parent == compartmentTransform)
+                    {
+                        keyOwningDrawerController = controller;
+                        keyOwningCompartmentIndex = i;
+                        ownerFound = true;
+                        Debug.Log($"[KeyPlacementManager DEBUG] EŞLEŞME BULUNDU: Anahtar='{activeKeyObjectInScene.name}' Çekmece='{controller.gameObject.name}' Kompartıman='{compartmentTransform.name}' (Index {i}) ile eşleşti.", activeKeyObjectInScene);
+                        break; // Bu controller için iç döngüden çık
+                    }
                 }
+                else if (compartmentTransform == null)
+                {
+                    Debug.LogWarning($"[KeyPlacementManager DEBUG] Uyarı: DrawerController '{controller.gameObject.name}' için {i}. kompartımanın transformu null.", controller.gameObject);
+                }
+                // activeKeyObjectInScene null olmamalı çünkü yukarıda kontrol ediliyor.
             }
         }
 
@@ -123,8 +137,5 @@ public class KeyPlacementManager : MonoBehaviour
         {
             playerKeyObject.SetActive(false); 
         }
-
-        // Bu log, yukarıdaki daha detaylı log ile yer değiştirebilir veya isteğe bağlı olarak kalabilir.
-        // Debug.Log($"KeyPlacementManager: Aktif anahtar '{activeKeyObjectInScene.name}', '{keyOwningDrawerController.gameObject.name}' GameObject'ındaki dolabın {keyOwningCompartmentIndex + 1}. çekmecesine yerleştirildi.", keyOwningDrawerController);
     }
 } 

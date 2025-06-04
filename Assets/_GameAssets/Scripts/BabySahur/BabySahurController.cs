@@ -477,4 +477,123 @@ public class BabySahurController : MonoBehaviour
             }
         }
     }
+
+    // Kafes açıldığında CageController tarafından çağrılacak metot
+    public void StartEscape(Vector3 targetPosition)
+    {
+        if (navMeshAgent == null)
+        {
+            if (debugMode) Debug.LogError($"[NAV_CTRL] {gameObject.name} ({GetInstanceID()}) için NavMeshAgent atanmamış! Kaçış başlatılamıyor.", this);
+            return;
+        }
+        if (animator == null && debugMode)
+        {
+            Debug.LogWarning($"[ANIM_CTRL] {gameObject.name} ({GetInstanceID()}) için Animator atanmamış! Kaçış animasyonu oynatılamayabilir.", this);
+        }
+
+        // Kaçış başladığında oyuncuyla etkileşim rutinlerini durdur
+        StopCheckRoutine();
+        dahaOnceKacmayiDeneydi = true; // Tekrar yakalanmaya çalışırsa direkt alınsın veya farklı bir mantık.
+        if (debugMode) Debug.Log($"[BEHAV_CTRL] {gameObject.name} ({GetInstanceID()}) StartEscape çağrıldığı için LookCheckRoutine durduruldu ve dahaOnceKacmayiDeneydi true yapıldı.", this);
+
+        // Alma butonunu devre dışı bırak (eğer açıksa)
+        if (takeButtonObject != null && takeButtonObject.activeSelf)
+        {
+            takeButtonObject.SetActive(false);
+            if (debugMode) Debug.Log($"[BTN_CTRL] {gameObject.name} ({GetInstanceID()}) StartEscape çağrıldığında takeButtonObject devre dışı bırakıldı.", this);
+        }
+
+        StartCoroutine(PerformEscapeRoutine(targetPosition));
+    }
+
+    private IEnumerator PerformEscapeRoutine(Vector3 targetPosition)
+    {
+        if (debugMode) Debug.Log($"[ESCAPE_ROUTINE] {gameObject.name} ({GetInstanceID()}) PerformEscapeRoutine başlatıldı. Hedef: {targetPosition}", this);
+
+        // Bebek yatıyorsa ayağa kaldır
+        float currentXRotation = transform.eulerAngles.x;
+        if (Mathf.Approximately(currentXRotation, YATMA_ROTATION_X) || Mathf.Approximately(currentXRotation, 360f + YATMA_ROTATION_X) || Mathf.Approximately(currentXRotation, 270f))
+        {
+            transform.rotation = Quaternion.Euler(AYAKTA_ROTATION_X, transform.eulerAngles.y, transform.eulerAngles.z);
+            if (debugMode) Debug.Log($"[ROT_CTRL] {gameObject.name} ({GetInstanceID()}) PerformEscapeRoutine içinde ayağa kaldırıldı. Önceki X rot: {currentXRotation}, Yeni rotasyon: {transform.eulerAngles}", this);
+        }
+
+        if (_collider != null && !_collider.enabled)
+        {
+            _collider.enabled = true;
+            if (debugMode) Debug.Log($"[COLLIDER_CTRL] {gameObject.name} ({GetInstanceID()}) PerformEscapeRoutine içinde Collider AKTİF edildi.", this);
+        }
+
+        if (!navMeshAgent.enabled)
+        {
+            navMeshAgent.enabled = true;
+            if (debugMode) Debug.Log($"[NAV_CTRL] {gameObject.name} ({GetInstanceID()}) NavMeshAgent PerformEscapeRoutine içinde AKTİF edildi.", this);
+        }
+
+        navMeshAgent.speed = kacisHizi;
+        navMeshAgent.SetDestination(targetPosition);
+        if (debugMode) Debug.Log($"[NAV_CTRL] {gameObject.name} ({GetInstanceID()}) Yeni hedef ayarlandı: {targetPosition}. Hız: {navMeshAgent.speed}", this);
+
+        if (animator != null)
+        {
+            animator.SetBool(IS_RUNNING_ANIM_BOOL, true);
+            if (debugMode) Debug.Log($"[ANIM_CTRL] {gameObject.name} ({GetInstanceID()}) PerformEscapeRoutine içinde '{IS_RUNNING_ANIM_BOOL}' true olarak ayarlandı.", this);
+        }
+
+        // Hedefe ulaşana kadar bekle
+        float checkStartTime = Time.time;
+        float pathTimeout = 15f; // Maksimum yol bulma/gitme süresi (saniye)
+
+        while (navMeshAgent.pathPending || (navMeshAgent.hasPath && navMeshAgent.remainingDistance > navMeshAgent.stoppingDistance))
+        {
+            if (Time.time - checkStartTime > pathTimeout)
+            {
+                if (debugMode) Debug.LogWarning($"[ESCAPE_ROUTINE] {gameObject.name} ({GetInstanceID()}) Hedefe ulaşma zaman aşımına uğradı ({pathTimeout}s). NavMesh Status: {navMeshAgent.pathStatus}", this);
+                break; // Zaman aşımı
+            }
+            yield return null; // Bir sonraki frame'e kadar bekle
+        }
+
+        if (debugMode)
+        {
+            if (navMeshAgent.hasPath && navMeshAgent.remainingDistance <= navMeshAgent.stoppingDistance)
+            {
+                Debug.Log($"[ESCAPE_ROUTINE] {gameObject.name} ({GetInstanceID()}) Hedefe ulaşıldı. Kalan Mesafe: {navMeshAgent.remainingDistance:F2}", this);
+            }
+            else
+            {
+                Debug.LogWarning($"[ESCAPE_ROUTINE] {gameObject.name} ({GetInstanceID()}) Hedefe ulaşılamadı veya döngü başka bir nedenle sonlandı. Kalan Mesafe: {navMeshAgent.remainingDistance:F2}, PathPending: {navMeshAgent.pathPending}, HasPath: {navMeshAgent.hasPath}, PathStatus: {navMeshAgent.pathStatus}", this);
+            }
+        }
+
+        // Animasyonu Idle'a çevir
+        if (animator != null)
+        {
+            animator.SetBool(IS_RUNNING_ANIM_BOOL, false);
+            if (debugMode) Debug.Log($"[ANIM_CTRL] {gameObject.name} ({GetInstanceID()}) PerformEscapeRoutine sonunda '{IS_RUNNING_ANIM_BOOL}' false olarak ayarlandı (Idle'a geçiş).", this);
+        }
+
+        transform.rotation = Quaternion.Euler(YATMA_ROTATION_X, transform.eulerAngles.y, transform.eulerAngles.z);
+        if (debugMode) Debug.Log($"[ROT_CTRL] {gameObject.name} ({GetInstanceID()}) PerformEscapeRoutine sonunda yatırıldı.", this);
+        
+        if (_collider != null) 
+        {
+            _collider.enabled = false; // Collider'ı kapat
+            if (debugMode) Debug.Log($"[COLLIDER_CTRL] {gameObject.name} ({GetInstanceID()}) PerformEscapeRoutine sonunda Collider KAPATILDI.", this);
+        }
+        
+        if (navMeshAgent != null && navMeshAgent.enabled) 
+        {
+            navMeshAgent.enabled = false;
+            if (debugMode) Debug.Log($"[NAV_CTRL] {gameObject.name} ({GetInstanceID()}) PerformEscapeRoutine sonunda NavMeshAgent KAPATILDI.", this);
+        }
+        
+        dahaOnceKacmayiDeneydi = false; // Bayrağı sıfırla
+        if (debugMode) Debug.Log($"[BEHAV_CTRL] {gameObject.name} ({GetInstanceID()}) PerformEscapeRoutine sonunda dahaOnceKacmayiDeneydi false olarak ayarlandı.", this);
+
+        StartCheckRoutine(); // Tekrar algılanabilir olması için (ancak collider kapalıysa alınamaz)
+        if (debugMode) Debug.Log($"[BEHAV_CTRL] {gameObject.name} ({GetInstanceID()}) PerformEscapeRoutine sonunda StartCheckRoutine çağrıldı.", this);
+
+        if (debugMode) Debug.Log($"[ESCAPE_ROUTINE] {gameObject.name} ({GetInstanceID()}) PerformEscapeRoutine tamamlandı.", this);
+    }
 } 

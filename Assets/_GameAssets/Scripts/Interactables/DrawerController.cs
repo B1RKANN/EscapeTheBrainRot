@@ -248,9 +248,27 @@ public class DrawerController : MonoBehaviour
         
         // Tüm ön koşullar sağlandı (Oyuncu trigger'da, bu dolapta anahtar var, anahtar alınmamış).
         // Butonun aktif olup olmayacağı artık sadece doğru çekmecenin açık olup olmadığına bağlı.
-        _takeKeyButtonInstance.SetActive(correctDrawerIsOpen);
+        
+        bool shouldButtonBeActive = correctDrawerIsOpen;
+        _takeKeyButtonInstance.SetActive(shouldButtonBeActive);
 
-        Debug.Log($"[DrawerController] {gameObject.name} | Buton ({_takeKeyButtonInstance.name}) durumu ayarlandı: {correctDrawerIsOpen} (Koşullar: _isPlayerInTrigger: {_isPlayerInTrigger}, HasKey: {HasKey}, !_isKeyTaken: {!_isKeyTaken}, correctDrawerIsOpen: {correctDrawerIsOpen})", _takeKeyButtonInstance);
+        if (shouldButtonBeActive)
+        {
+            // Buton aktif ediliyorsa, onClick event'ini bu DrawerController'ın TakeKey metoduna ayarla.
+            UnityEngine.UI.Button buttonComponent = _takeKeyButtonInstance.GetComponent<UnityEngine.UI.Button>();
+            if (buttonComponent != null)
+            {
+                buttonComponent.onClick.RemoveAllListeners(); // Önceki tüm listener'ları temizle
+                buttonComponent.onClick.AddListener(TakeKey);   // Bu instance'ın TakeKey metodunu ekle
+                Debug.Log($"[DrawerController] {gameObject.name} | Buton ({_takeKeyButtonInstance.name}) için OnClick listener'ı TakeKey() metoduna ayarlandı.", _takeKeyButtonInstance);
+            }
+            else
+            {
+                Debug.LogError($"[DrawerController] {gameObject.name} | _takeKeyButtonInstance ({_takeKeyButtonInstance.name}) üzerinde UI.Button component'ı bulunamadı! OnClick ayarlanamıyor.", _takeKeyButtonInstance);
+            }
+        }
+
+        Debug.Log($"[DrawerController] {gameObject.name} | Buton ({_takeKeyButtonInstance.name}) durumu ayarlandı: {shouldButtonBeActive} (Koşullar: _isPlayerInTrigger: {_isPlayerInTrigger}, HasKey: {HasKey}, !_isKeyTaken: {!_isKeyTaken}, correctDrawerIsOpen: {correctDrawerIsOpen})", _takeKeyButtonInstance);
     }
 
     /// <summary>
@@ -259,6 +277,7 @@ public class DrawerController : MonoBehaviour
     /// </summary>
     public void TakeKey()
     {
+        Debug.Log($"[DrawerController] TakeKey çağrıldı: {gameObject.name} | HasKey şu an: {HasKey} | _isKeyTaken şu an: {_isKeyTaken}", this);
         if (!HasKey || _isKeyTaken)
         {
             Debug.LogWarning("Anahtar bu çekmecede değil veya zaten alınmış.", this);
