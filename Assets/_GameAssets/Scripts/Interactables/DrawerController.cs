@@ -20,10 +20,6 @@ public class DrawerController : MonoBehaviour
 
     public bool HasKey { get; private set; } = false;
 
-    [Header("Yakınlık Etkileşimi")]
-    [Tooltip("Oyuncu yaklaştığında görünecek olan World Space Canvas'lar (her çekmece gözü için bir tane). Trigger girildiğinde hepsi birden aktifleşir.")]
-    [SerializeField] private GameObject[] worldSpaceCanvases;
-
     [Tooltip("Oyuncunun etkileşim alanını belirleyen trigger collider. Otomatik olarak bu GameObject'ten alınır.")]
     private Collider interactionTrigger;
 
@@ -42,7 +38,6 @@ public class DrawerController : MonoBehaviour
         if (compartmentAnimators == null || compartmentAnimators.Length == 0)
         {
             Debug.LogError("DrawerController: Kompartıman Animatorleri (compartmentAnimators) dizisi atanmamış veya boş! Lütfen Inspector'dan atayın.", this);
-            // Animators olmadan devam etmek sorun yaratabilir, bu yüzden return;
         }
         else
         {
@@ -54,37 +49,10 @@ public class DrawerController : MonoBehaviour
                 }
             }
         }
-
-        if (worldSpaceCanvases == null || worldSpaceCanvases.Length == 0)
-        {
-            Debug.LogWarning("DrawerController: World Space Canvas dizisi (worldSpaceCanvases) atanmamış veya boş. Yakınlık etkileşimi Canvas'ları kontrol edemeyecek.", this);
-        }
-        else
-        {
-            for (int i = 0; i < worldSpaceCanvases.Length; i++)
-            {
-                if (worldSpaceCanvases[i] == null)
-                {
-                    Debug.LogError($"DrawerController: worldSpaceCanvases dizisindeki {i}. indeksteki Canvas atanmamış! Lütfen Inspector'dan atayın.", this);
-                }
-            }
-        }
     }
 
     void Start()
     {
-        // Başlangıçta tüm World Space Canvas'ları pasif yap
-        if (worldSpaceCanvases != null)
-        {
-            foreach (GameObject canvasGO in worldSpaceCanvases)
-            {
-                if (canvasGO != null)
-                {
-                    canvasGO.SetActive(false);
-                }
-            }
-        }
-
         // Butonun başlangıç durumu KeyPlacementManager ve UpdateTakeKeyButtonVisibility tarafından yönetilecek.
     }
 
@@ -325,20 +293,6 @@ public class DrawerController : MonoBehaviour
             _isPlayerInTrigger = true;
             Debug.Log($"[DrawerController] OnTriggerEnter on {gameObject.name}: Player TAG MATCHED. _isPlayerInTrigger set to TRUE.", this);
 
-            if (worldSpaceCanvases != null)
-            {
-                foreach (GameObject canvasGO in worldSpaceCanvases)
-                {
-                    if (canvasGO != null)
-                    {
-                        canvasGO.SetActive(true);
-                    }
-                }
-                if (Debug.isDebugBuild)
-                {
-                    Debug.Log($"[DrawerController] Oyuncu {gameObject.name} alanına girdi, tüm Canvas'lar aktif. _isPlayerInTrigger: {_isPlayerInTrigger}", this);
-                }
-            }
             UpdateTakeKeyButtonVisibility(); 
         }
     }
@@ -350,20 +304,6 @@ public class DrawerController : MonoBehaviour
             _isPlayerInTrigger = false;
             Debug.Log($"[DrawerController] OnTriggerExit on {gameObject.name}: Player TAG MATCHED. _isPlayerInTrigger set to FALSE.", this);
 
-            if (worldSpaceCanvases != null)
-            {
-                foreach (GameObject canvasGO in worldSpaceCanvases)
-                {
-                    if (canvasGO != null)
-                    {
-                        canvasGO.SetActive(false);
-                    }
-                }
-                if (Debug.isDebugBuild)
-                {
-                    Debug.Log($"[DrawerController] Oyuncu {gameObject.name} alanından çıktı, tüm Canvas'lar pasif. _isPlayerInTrigger: {_isPlayerInTrigger}", this);
-                }
-            }
             UpdateTakeKeyButtonVisibility();
         }
     }

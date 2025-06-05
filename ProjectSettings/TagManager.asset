@@ -7,11 +7,13 @@ TagManager:
   - InteractableDoor
   - BabySahur
   - Mud
+  - Sopa
+  - DrawerCompartment
   layers:
   - Default
   - TransparentFX
   - Ignore Raycast
-  - 
+  - Sopa
   - Water
   - UI
   - deneme
@@ -20,7 +22,7 @@ TagManager:
   - Door
   - BabySahur
   - Wall
-  - 
+  - DrawerCompartment
   - 
   - 
   - 
