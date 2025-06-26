@@ -9,6 +9,7 @@ TagManager:
   - Mud
   - Sopa
   - DrawerCompartment
+  - Sahur
   layers:
   - Default
   - TransparentFX

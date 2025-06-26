@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI; // Sadece "Take Button" GameObject referansı için kalabilir, Text için değil.
 using TMPro; // TextMeshPro için eklendi
+using System.Collections;
 
 public class CrosshairInteraction : MonoBehaviour
 {
@@ -26,8 +27,20 @@ public class CrosshairInteraction : MonoBehaviour
     [Tooltip("Çekmeceyi açıp kapatmak için kullanılacak UI Butonu GameObject'i")]
     public GameObject drawerInteractButton;
 
+    [Header("Sopa Fırlatma")]
+    [Tooltip("Oyuncunun elindeki, kameraya bağlı olan sopa objesi")]
+    public GameObject baseballBatInHand;
+    [Tooltip("Sopayı fırlatmak için kullanılacak UI Butonu")]
+    public GameObject pushButton;
+    [Tooltip("Fırlatılacak sopa prefab'ı (Rigidbody'li olmalı)")]
+    public GameObject throwableBatPrefab;
+    [Tooltip("Sopanın fırlatılma kuvveti")]
+    public float throwForce = 20f;
+    [Tooltip("Sopanın fırlatıldıktan sonra ele geri dönme süresi (saniye)")]
+    public float batReturnCooldown = 3.0f;
+
     private Camera mainCamera;
-    private GameObject _currentLookedAtStick = null; 
+    private GameObject _currentLookedAtStick = null;
     private DrawerCompartmentIdentifier _currentlyLookedAtDrawerCompartment = null;
 
     void Start()
@@ -45,6 +58,11 @@ public class CrosshairInteraction : MonoBehaviour
         SetGameObjectActive(takeStickButton, false, "'Take Stick Button' (Start)");
         SetGameObjectActive(drawerInteractButton, false, "'Drawer Interact Button' (Start)");
         SetGameObjectActive(interactPromptText != null ? interactPromptText.gameObject : null, false, "'Interact Prompt Text' (Start)");
+        
+        // Yeni eklenen UI elemanlarını da başlangıçta gizle
+        SetGameObjectActive(baseballBatInHand, false, "'Baseball Bat In Hand' (Start)");
+        SetGameObjectActive(pushButton, false, "'Push Button' (Start)");
+
         Debug.Log("Başlangıç UI durumları ayarlandı.");
     }
 
@@ -75,6 +93,12 @@ public class CrosshairInteraction : MonoBehaviour
         // {
             // Debug.Log("[Raycast MISS] Hiçbir şeye çarpmadı."); // Gerekirse açın
         // }
+
+        // Sopa elindeyse Fırlat (Push) butonunu göster
+        if (baseballBatInHand != null)
+        {
+            SetGameObjectActive(pushButton, baseballBatInHand.activeSelf, null); // Sadece durum değişirse aktif/pasif yapar
+        }
     }
 
     private void ResetInteractionStates()
@@ -134,16 +158,28 @@ public class CrosshairInteraction : MonoBehaviour
     /// Sopa almak için UI butonundan çağrılır.
     /// </summary>
     public void OnStickTakeButtonPressed()
-    {   
+    {
+        // GÜVENLİK KONTROLÜ: Fonksiyonun sadece buton görünür olduğunda çalışmasını sağla.
+        // Bu, oyun başlangıcında veya başka bir zamanda yanlışlıkla çağrılmasını engeller.
+        if (takeStickButton == null || !takeStickButton.activeInHierarchy)
+        {
+            return;
+        }
+
         Debug.Log("OnStickTakeButtonPressed ÇAĞRILDI. _currentLookedAtStick: " + (_currentLookedAtStick != null ? _currentLookedAtStick.name : "NULL"));
         if (_currentLookedAtStick != null)
         {
-            Debug.Log(_currentLookedAtStick.name + " alındı (simülasyon)!");
-            // Burada sopayı alma işlemini gerçekleştirin
-            // Destroy(_currentLookedAtStick); 
-            
+            Debug.Log(_currentLookedAtStick.name + " alındı ve yok edildi!");
+
+            // Yerdeki sopayı tamamen yok et
+            Destroy(_currentLookedAtStick);
+
+            // Eldeki sopayı aktif et
+            SetGameObjectActive(baseballBatInHand, true, "'Baseball Bat In Hand' (OnStickTakeButtonPressed)");
+
             // Etkileşim sonrası UI'ı temizle
-            ResetInteractionStates(); 
+            _currentLookedAtStick = null; // Artık bakılan bir sopa yok
+            ResetInteractionStates();
         }
     }
 
@@ -166,6 +202,57 @@ public class CrosshairInteraction : MonoBehaviour
         else
         {
              Debug.LogError("Çekmece veya Controller NULL OnDrawerInteractButtonPressed içinde!");
+        }
+    }
+
+    /// <summary>
+    /// Sopayı fırlatmak için UI butonundan çağrılır.
+    /// </summary>
+    public void OnPushButtonPressed()
+    {
+        if (mainCamera == null || throwableBatPrefab == null || baseballBatInHand == null)
+        {
+            Debug.LogError("Fırlatma için Ana Kamera, Fırlatılabilir Sopa Prefab'ı veya Eldeki Sopa atanmamış!");
+            return;
+        }
+
+        // Sadece eldeki sopa aktifse fırlatmaya izin ver
+        if (!baseballBatInHand.activeSelf)
+        {
+            Debug.LogWarning("Sopa elde değil, fırlatılamaz.");
+            return;
+        }
+
+        Debug.Log("OnPushButtonPressed ÇAĞRILDI.");
+
+        // 1. Eldeki sopayı gizle
+        SetGameObjectActive(baseballBatInHand, false, "'Baseball Bat In Hand' (OnPushButtonPressed)");
+
+        // 2. Fırlatılabilir sopa prefab'ını crosshair yönünde oluştur
+        Vector3 spawnPosition = mainCamera.transform.position + mainCamera.transform.forward * 1.0f; // Kameranın biraz önünde
+        GameObject thrownBat = Instantiate(throwableBatPrefab, spawnPosition, mainCamera.transform.rotation);
+
+        // Fırlatılan objenin kopyası da inaktif olabileceğinden, onu burada zorla aktif ediyoruz.
+        thrownBat.SetActive(true);
+        Debug.Log($"Fırlatılan sopa ({thrownBat.name}) oluşturuldu ve aktif edildi.", thrownBat);
+
+        // 3. Fırlatma kuvvetini uygula
+        Rigidbody rb = thrownBat.GetComponent<Rigidbody>();
+        if (rb != null)
+        {
+            // Fırlatılan sopanın fizik kurallarından etkilenebilmesi için 'kinematic' olmaması gerekir.
+            rb.isKinematic = false;
+            // Yerçekimini devre dışı bırakıyoruz.
+            rb.useGravity = false;
+            rb.AddForce(mainCamera.transform.forward * throwForce, ForceMode.Impulse);
+        }
+        else
+        {
+            Debug.LogError("Fırlatılabilir sopa prefab'ında Rigidbody bileşeni bulunamadı!");
+            Destroy(thrownBat); // Hatalı objeyi temizle
+            // Eldeki sopayı geri getir, çünkü fırlatma başarısız oldu
+            SetGameObjectActive(baseballBatInHand, true);
+            return;
         }
     }
 

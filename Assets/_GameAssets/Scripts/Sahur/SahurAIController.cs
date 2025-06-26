@@ -1,8 +1,9 @@
 using UnityEngine;
 using UnityEngine.AI;
 using UnityEngine.UI;
+using System.Collections; // Hata çözümü için eklendi
 using EscapeTheBrainRot;
-using EscapeTheBrainRot; 
+using TMPro; // TextMeshPro için eklendi
 
 [RequireComponent(typeof(NavMeshAgent), typeof(Animator))]
 public class SahurAIController : MonoBehaviour
@@ -155,6 +156,10 @@ public class SahurAIController : MonoBehaviour
     [Tooltip("Siyah ekranın tekrar kaybolma (fade out) animasyon süresi (saniye).")] // YENİ
     [SerializeField] private float blackScreenFadeOutDuration = 0.75f; // YENİ
 
+    [Header("Stun Settings")]
+    [Tooltip("Sahur bayıldığında geriye sayımı gösterecek TextMeshPro UI elemanı.")]
+    [SerializeField] private TextMeshProUGUI stunCounterText;
+
     // --- Özel Değişkenler ---
     private NavMeshAgent agent;
     private Animator animator;
@@ -166,7 +171,8 @@ public class SahurAIController : MonoBehaviour
         Patrolling,
         OpeningDoor,
         ChasingPlayer,
-        ActionInProgress
+        ActionInProgress,
+        Stunned 
     }
     private AIState currentState;
 
@@ -372,6 +378,9 @@ public class SahurAIController : MonoBehaviour
                     UpdateHidingSpotWaitTimer();
                 }
                 break;
+            case AIState.Stunned:
+                // Stunned durumunda Update'te bir şey yapmaya gerek yok, Coroutine hallediyor.
+                break;
         }
 
         // Kovalamayı kaybettikten sonraki cooldown'u işle
@@ -424,6 +433,9 @@ public class SahurAIController : MonoBehaviour
                 break;
             case AIState.ActionInProgress: 
                 Debug.Log("[SahurAIController] ActionInProgress durumuna girildi.", this);
+                break;
+            case AIState.Stunned:
+                EnterStunnedState();
                 break;
         }
     }
@@ -1697,6 +1709,13 @@ public class SahurAIController : MonoBehaviour
     
     private void HandlePlayerEnteredMud()
     {
+        // BAYGINLIK KONTROLÜ: Eğer Sahur baygınsa, çamura tepki verme.
+        if (currentState == AIState.Stunned)
+        {
+            Debug.Log("[SahurAIController] HandlePlayerEnteredMud: Sahur baygın olduğu için çamur etkileşimi yoksayıldı.", this);
+            return;
+        }
+
         if (playerTransform == null)
         {
             Debug.LogWarning("[SahurAIController] HandlePlayerEnteredMud: PlayerTransform null. Oyuncu bulunmaya çalışılıyor.", this);
@@ -1726,6 +1745,27 @@ public class SahurAIController : MonoBehaviour
         isChasingDueToVision = false; // Diğer kovalama türlerini sıfırla
         sahurKnowsPlayerIsHiding = false; // Oyuncu saklanıyorsa bile çamur bunu geçersiz kılar
         SwitchToState(AIState.ChasingPlayer);
+
+        // Bebek yandığında oyuncu saklanıyorsa, Sahur'un oyuncunun yerini bilmesini sağla.
+        if (isPlayerHiding)
+        {
+            sahurKnowsPlayerIsHiding = true;
+            Debug.Log("[SahurAIController] Bebek yandı! Sahur, oyuncunun dolapta saklandığını artık biliyor.", this);
+        }
+
+        // BAYGINLIK KONTROLÜ: Eğer Sahur baygınsa, yanma olayına tepki verme.
+        if (currentState == AIState.Stunned)
+        {
+            Debug.Log("[SahurAIController] HandleBabyBurned: Sahur baygın olduğu için yanma etkileşimi yoksayıldı.", this);
+            return;
+        }
+
+        // Eğer Sahur zaten kovalıyorsa, tekrar state değiştirmeye gerek yok.
+        if (currentState == AIState.ChasingPlayer) 
+        {
+            Debug.Log("[SahurAIController] HandleBabyBurned: Sahur zaten kovalıyor. Oyuncu saklanıyor veya çamur kovalaması başlatılıyor.", this);
+            return;
+        }
     }
 
     private void HandlePlayerExitedMud()
@@ -1737,5 +1777,60 @@ public class SahurAIController : MonoBehaviour
         // Şimdilik, çamurdan çıkış direkt bir aksiyonu tetiklemiyor,
         // kovalama mesafesi UpdateChasingPlayerState'te kontrol ediliyor.
         Debug.Log("[SahurAIController] Oyuncu çamurdan çıktı bilgisi alındı.", this);
+    }
+
+    // --- Stunned (Bayılma) Durumu ---
+    private void EnterStunnedState()
+    {
+        Debug.Log("[SahurAIController] Stunned durumuna girildi.", this);
+        if (agent.isOnNavMesh)
+        {
+            agent.isStopped = true;
+            agent.ResetPath();
+        }
+        // Tüm hareket animasyonlarını durdur, idle'a geçmesini sağla
+        animator.SetBool(isWalkingAnimatorHash, false);
+        animator.SetBool(isChasingAnimatorHash, false);
+    }
+
+    public void GetStunned(float duration)
+    {
+        // Eğer zaten baygınsa veya daha önemli bir aksiyon yapıyorsa (örn: oyuncu yakalama) bayıltmayı engelle
+        if (currentState == AIState.Stunned || currentState == AIState.ActionInProgress)
+        {
+            Debug.Log($"[SahurAIController] Sahur zaten meşgul ({currentState}), bayıltma isteği yoksayıldı.", this);
+            return;
+        }
+
+        Debug.Log($"[SahurAIController] Sahur {duration} saniyeliğine bayıltıldı!", this);
+        SwitchToState(AIState.Stunned);
+        StartCoroutine(StunCountdownCoroutine(duration));
+    }
+
+    private IEnumerator StunCountdownCoroutine(float duration)
+    {
+        if (stunCounterText != null)
+        {
+            stunCounterText.gameObject.SetActive(true);
+        }
+
+        float timer = duration;
+        while (timer > 0)
+        {
+            if (stunCounterText != null)
+            {
+                stunCounterText.text = Mathf.CeilToInt(timer).ToString();
+            }
+            yield return new WaitForSeconds(1f);
+            timer -= 1f;
+        }
+
+        if (stunCounterText != null)
+        {
+            stunCounterText.gameObject.SetActive(false);
+        }
+
+        Debug.Log("[SahurAIController] Bayılma durumu sona erdi. Devriyeye dönülüyor.", this);
+        SwitchToState(AIState.Patrolling); // Bayılma bitince devriyeye başla
     }
 }
